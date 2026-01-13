@@ -1,4 +1,4 @@
--- ─────────────── ✦ Rivals CHT Exploit ✦ ───────────────
+-- ─────────────── ✦ Rivals - Your Desire ✦ ───────────────
 --  Created by: primesto.fx
 --  Maintained by: primesto.fx
 --  DM on Discord for requests: primesto.fx
@@ -1763,6 +1763,7 @@ local playerHealthToggle = makeToggle(visualTab.LeftCol, "Player Health")
 local showHealthKeybind = makeKeyBindButton(visualTab.RightCol, "Show Health Keybind", Enum.KeyCode.P)
 local espBoxesToggle = makeToggle(visualTab.LeftCol, "ESP Boxes")
 local espBoxesColorPicker = makeColorPicker(visualTab.LeftCol, "ESP Boxes Color", initColor)
+local showEnemyWeaponsToggle = makeToggle(visualTab.RightCol, "Show Enemy Weapons")
 
 ------------- Continue -------------
 
@@ -1772,6 +1773,7 @@ BindToggleToConfig(playerChamsToggle, "visuals.playerChams", true)
 BindToggleToConfig(glowChamsToggle, "visuals.glowChams", false)
 BindToggleToConfig(playerHealthToggle, "visuals.playerHealth", false)
 BindToggleToConfig(espBoxesToggle, "visuals.espBoxes", false)
+BindToggleToConfig(showEnemyWeaponsToggle, "visuals.showEnemyWeapons", false)
 
 
 ---------------------------------------------------------------------------
@@ -1781,7 +1783,7 @@ BindToggleToConfig(espBoxesToggle, "visuals.espBoxes", false)
 local showGuiOnLoadToggle = makeToggle(settingsTab.LeftCol, "Show GUI On Load")
 local closeOpenGuiKeybind = makeKeyBindButton(settingsTab.LeftCol, "Close/Open GUI", Enum.KeyCode.Insert)
 local autoScaleUIToggle = makeToggle(settingsTab.LeftCol, "Auto-Scale UI")
-local warnIfUnsupportedGameToggle = makeToggle(settingsTab.RightCol, "Warn if unsupported game")
+local warnIfUnsupportedGameToggle = makeToggle(settingsTab.RightCol, "Warn when executing")
 
 
 -- ** Save Settings to Config **
@@ -1807,7 +1809,7 @@ local aimbotFOVSlider = makeSlider(combatTab.RightCol, "Aimbot FOV", 1, 1000, in
 local drawFovCircleToggle = makeToggle(combatTab.LeftCol, "Draw FOV Circle")
 local targetBehindWallsToggle = makeToggle(combatTab.LeftCol, "Target Behind Walls")
 local aimLockKeybind = makeKeyBindButton(combatTab.RightCol, "Aim Lock Keybind", Enum.KeyCode.Q)
-local teamCheckToggle = makeToggle(combatTab.RightCol, "Team Check")
+local teamCheckToggle = makeToggle(combatTab.LeftCol, "Team Check")
 
 
 
@@ -2029,27 +2031,6 @@ end
 -- ** ESP Boxes Logic Starts Here **
 
 do
-    local initTbl = GetConfig("visuals.espBoxesColor", nil)
-    local initColor
-    if type(initTbl) == "table" and initTbl.r and initTbl.g and initTbl.b then
-        initColor = Color3.new(initTbl.r, initTbl.g, initTbl.b)
-    else
-        local ok, api = pcall(function() return ColorPickerAPI[playerChamsColorPicker] end)
-        if ok and api and api.Get then
-            pcall(function() initColor = api.Get() end)
-        end
-        if not initColor then initColor = COLORS.accent end
-    end
-    local api = ColorPickerAPI[espBoxesColorPicker]
-    if api then
-        api.OnChange = function(c)
-            SetConfig("visuals.espBoxesColor", { r = c.R, g = c.G, b = c.B })
-        end
-        pcall(function() api.Set(initColor) end)
-    end
-end
-
-do
     if typeof(Drawing) == "table" and Drawing.new then
         local boxes = {}
         local renderConn, playerAddedConn, playerRemovingConn
@@ -2057,23 +2038,27 @@ do
         local colorApi = nil
         local colorApiPrev = nil
 
+        local Players = game:GetService("Players")
+        local RunService = game:GetService("RunService")
+        local localPlayer = Players.LocalPlayer
+
+        local MAX_CREATE_DISTANCE = 300 
+        local PAD = 8
+
         local function getBoxColor()
-            -- prefer ESP Boxes color picker if present
             local okE, eApi = pcall(function() return ColorPickerAPI[espBoxesColorPicker] end)
             if okE and eApi and eApi.Get then
                 local c = eApi.Get()
-                if type(c) == "Color3" then return c end
+                if typeof(c) == "Color3" then return c end
             end
-            -- fallback to saved config
             local tbl = GetConfig("visuals.espBoxesColor", nil)
             if type(tbl) == "table" and tbl.r and tbl.g and tbl.b then
                 return Color3.new(tbl.r, tbl.g, tbl.b)
             end
-            -- fallback to player chams color
             local ok, api = pcall(function() return ColorPickerAPI[playerChamsColorPicker] end)
             if ok and api and api.Get then
                 local c = api.Get()
-                if type(c) == "Color3" then return c end
+                if typeof(c) == "Color3" then return c end
             end
             return COLORS.accent
         end
@@ -2097,42 +2082,102 @@ do
             end
         end
 
+        local function projectWorldPointsToScreen(cam, points)
+            local minX, minY = math.huge, math.huge
+            local maxX, maxY = -math.huge, -math.huge
+            local anyOnScreen = false
+            for _, worldPos in ipairs(points) do
+                local ok, sx, sy, sz
+                ok, sx, sy, sz = pcall(function() 
+                    local xv = cam:WorldToViewportPoint(worldPos)
+                    return xv.X, xv.Y, xv.Z
+                end)
+                if ok and sz and sz > 0 then
+                    anyOnScreen = true
+                    minX = math.min(minX, sx)
+                    maxX = math.max(maxX, sx)
+                    minY = math.min(minY, sy)
+                    maxY = math.max(maxY, sy)
+                end
+            end
+            return anyOnScreen and minX or nil, anyOnScreen and minY or nil, anyOnScreen and maxX or nil, anyOnScreen and maxY or nil
+        end
+
+        local function getImportantParts(ch)
+            local parts = {}
+            local function tryGet(name)
+                local p = ch:FindFirstChild(name)
+                if p and p:IsA("BasePart") then table.insert(parts, p) end
+            end
+            tryGet("HumanoidRootPart")
+            tryGet("Head")
+            tryGet("UpperTorso")
+            tryGet("LowerTorso")
+            return parts
+        end
+
         local function updateBoxes()
             local cam = workspace.CurrentCamera
             if not cam then return end
             local color = getBoxColor()
-            for p, box in pairs(boxes) do
+            local camPos = cam.CFrame.Position
+
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p == localPlayer then continue end
                 local ch = p and p.Character
                 if not ch or not ch.Parent then
-                    box.Visible = false
+                    removeBoxForPlayer(p)
                 else
-                    local minX, minY = math.huge, math.huge
-                    local maxX, maxY = -math.huge, -math.huge
-                    local any = false
-                    for _, part in ipairs(ch:GetDescendants()) do
-                        if part and part:IsA("BasePart") then
-                            local ok, screen = pcall(function() return cam:WorldToViewportPoint(part.Position) end)
-                            if ok and screen and screen.Z and screen.Z > 0 then
-                                any = true
-                                minX = math.min(minX, screen.X)
-                                maxX = math.max(maxX, screen.X)
-                                minY = math.min(minY, screen.Y)
-                                maxY = math.max(maxY, screen.Y)
+                    local root = ch.PrimaryPart or ch:FindFirstChild("HumanoidRootPart")
+                    if not root then
+                        removeBoxForPlayer(p)
+                    else
+                        local dist = (root.Position - camPos).Magnitude
+                        if dist > MAX_CREATE_DISTANCE then
+                            removeBoxForPlayer(p)
+                        else
+                            local box = boxes[p] or makeBoxForPlayer(p)
+                            if not box then
+                            else
+                                local minX, minY, maxX, maxY
+                                local ok, bboxCFrame, bboxSize = pcall(function() return ch:GetBoundingBox() end)
+                                if ok and bboxCFrame and bboxSize then
+                                    local hx, hy, hz = bboxSize.X / 2, bboxSize.Y / 2, bboxSize.Z / 2
+                                    local corners = {
+                                        bboxCFrame * CFrame.new(-hx, -hy, -hz),
+                                        bboxCFrame * CFrame.new(-hx, -hy,  hz),
+                                        bboxCFrame * CFrame.new(-hx,  hy, -hz),
+                                        bboxCFrame * CFrame.new(-hx,  hy,  hz),
+                                        bboxCFrame * CFrame.new( hx, -hy, -hz),
+                                        bboxCFrame * CFrame.new( hx, -hy,  hz),
+                                        bboxCFrame * CFrame.new( hx,  hy, -hz),
+                                        bboxCFrame * CFrame.new( hx,  hy,  hz),
+                                    }
+                                    local points = {}
+                                    for _, cf in ipairs(corners) do table.insert(points, cf.Position) end
+                                    minX, minY, maxX, maxY = projectWorldPointsToScreen(cam, points)
+                                else
+                                    -- ** fallback to important parts
+                                    local parts = getImportantParts(ch)
+                                    local points = {}
+                                    for _, part in ipairs(parts) do table.insert(points, part.Position) end
+                                    minX, minY, maxX, maxY = projectWorldPointsToScreen(cam, points)
+                                end
+
+                                if not minX then
+                                    box.Visible = false
+                                else
+                                    local x = minX - PAD
+                                    local y = minY - PAD
+                                    local w = math.max(4, maxX - minX + PAD * 2)
+                                    local h = math.max(4, maxY - minY + PAD * 2)
+                                    box.Position = Vector2.new(x, y)
+                                    box.Size = Vector2.new(w, h)
+                                    box.Color = color
+                                    box.Visible = true
+                                end
                             end
                         end
-                    end
-                    if not any then
-                        box.Visible = false
-                    else
-                        local pad = 8
-                        local x = minX - pad
-                        local y = minY - pad
-                        local w = math.max(4, maxX - minX + pad * 2)
-                        local h = math.max(4, maxY - minY + pad * 2)
-                        box.Position = Vector2.new(x, y)
-                        box.Size = Vector2.new(w, h)
-                        box.Color = color
-                        box.Visible = true
                     end
                 end
             end
@@ -2140,20 +2185,18 @@ do
 
         local function enableBoxes()
             for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= Players.LocalPlayer then
-                    makeBoxForPlayer(p)
+                if p ~= localPlayer then
                     if charConns[p] then pcall(function() charConns[p]:Disconnect() end) end
                     charConns[p] = p.CharacterAdded:Connect(function()
-                        pcall(function() makeBoxForPlayer(p) end)
+                        pcall(function() end) 
                     end)
                 end
             end
             playerAddedConn = Players.PlayerAdded:Connect(function(p)
-                if p ~= Players.LocalPlayer then
-                    makeBoxForPlayer(p)
+                if p ~= localPlayer then
                     if charConns[p] then pcall(function() charConns[p]:Disconnect() end) end
                     charConns[p] = p.CharacterAdded:Connect(function()
-                        pcall(function() makeBoxForPlayer(p) end)
+                        pcall(function() end)
                     end)
                 end
             end)
@@ -2204,6 +2247,7 @@ do
         end)
     end
 end
+
 
 
 -- ** ESP Boxes Logic Ends Here **
@@ -2462,227 +2506,282 @@ end
 -- ** Player Health Logic Starts Here **
 
 do
-    local healthGuis = {}
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local UserInputService = game:GetService("UserInputService")
+
+    local healthOverlays = {}
     local charConns = {}
     local humConns = {}
-    local HEALTH_BASE_W, HEALTH_BASE_H = 140, 28
-    local SCALE_MIN_DIST, SCALE_MAX_DIST = 20, 200
-    local SCALE_MIN_FACTOR, SCALE_MAX_FACTOR = 0.6, 1.6
-    local FADE_NEAR, FADE_FAR = 40, 80
+
+    local HEALTH_BASE_W, HEALTH_BASE_H = 140, 12  
+    local MAX_CREATE_DISTANCE = 350
+    local HEALTH_BAR_MIN_WIDTH = 60
+    local HEALTH_BAR_MAX_WIDTH = 140
+
+    local KEY_CONFIG = "settings.showHealthKey"
 
     local function safeDisconnect(c)
-        if c and c.Disconnect then pcall(function() c:Disconnect() end) end
+        if c and c.Disconnect then
+            pcall(function() c:Disconnect() end)
+        end
     end
 
-    local function applyScalingToData(d, enable)
-        if not d or not d.bill then return end
-        if not enable then
-            if d._scaleConn then safeDisconnect(d._scaleConn) d._scaleConn = nil end
-            if d._forceConn then safeDisconnect(d._forceConn) d._forceConn = nil end
-            d._forceConn = RunService.RenderStepped:Connect(function()
-                if not d or not d.bill or not d.bill.Parent then safeDisconnect(d._forceConn) d._forceConn = nil return end
-                pcall(function() d.bill.Size = UDim2.new(0, HEALTH_BASE_W, 0, HEALTH_BASE_H) end)
-            end)
+    local function createHealthBar(p)
+        if healthOverlays[p] then return healthOverlays[p] end
+        
+        local bg = Drawing.new("Square")
+        local fill = Drawing.new("Square")
+        local text = Drawing.new("Text")
+        
+        bg.Filled = true
+        bg.Thickness = 1
+        bg.Color = Color3.fromRGB(30, 30, 30)
+        bg.ZIndex = 1
+        bg.Visible = false
+        
+        fill.Filled = true
+        fill.Thickness = 0
+        fill.Color = Color3.fromRGB(0, 200, 80)
+        fill.ZIndex = 2
+        fill.Visible = false
+        
+        text.Center = true
+        text.Outline = true
+        text.Font = 2
+        text.Size = 14  
+        text.Color = Color3.new(1, 1, 1)
+        text.ZIndex = 3
+        text.Visible = false
+        
+        healthOverlays[p] = {
+            bg = bg,
+            fill = fill,
+            text = text
+        }
+        
+        return healthOverlays[p]
+    end
+
+    local function removeHealthBar(p)
+        local data = healthOverlays[p]
+        if not data then return end
+        
+        if data.bg then data.bg:Remove() end
+        if data.fill then data.fill:Remove() end
+        if data.text then data.text:Remove() end
+        
+        healthOverlays[p] = nil
+    end
+
+    local function updateHealthBar(p, data, cam, refPos)
+        if not p.Character then 
+            data.bg.Visible = false
+            data.fill.Visible = false
+            data.text.Visible = false
+            return 
+        end
+        
+        local root = p.Character.PrimaryPart or p.Character:FindFirstChild("HumanoidRootPart")
+        if not root then 
+            data.bg.Visible = false
+            data.fill.Visible = false
+            data.text.Visible = false
+            return 
+        end
+        
+        local dist = (root.Position - refPos).Magnitude
+        if dist > MAX_CREATE_DISTANCE then
+            data.bg.Visible = false
+            data.fill.Visible = false
+            data.text.Visible = false
             return
         end
+        
+        local ok, bboxCFrame, bboxSize = pcall(function() 
+            return p.Character:GetBoundingBox() 
+        end)
+        
+        if not ok then 
+            data.bg.Visible = false
+            data.fill.Visible = false
+            data.text.Visible = false
+            return 
+        end
+        
+        local minX, minY = math.huge, math.huge
+        local maxX, maxY = -math.huge, -math.huge
+        
+        local hx, hy, hz = bboxSize.X / 2, bboxSize.Y / 2, bboxSize.Z / 2
+        local corners = {
+            bboxCFrame * CFrame.new(-hx, -hy, -hz),
+            bboxCFrame * CFrame.new(-hx, -hy,  hz),
+            bboxCFrame * CFrame.new(-hx,  hy, -hz),
+            bboxCFrame * CFrame.new(-hx,  hy,  hz),
+            bboxCFrame * CFrame.new( hx, -hy, -hz),
+            bboxCFrame * CFrame.new( hx, -hy,  hz),
+            bboxCFrame * CFrame.new( hx,  hy, -hz),
+            bboxCFrame * CFrame.new( hx,  hy,  hz),
+        }
+        
+        local anyVisible = false
+        for _, cf in ipairs(corners) do
+            local screen = cam:WorldToViewportPoint(cf.Position)
+            if screen.Z > 0 then
+                anyVisible = true
+                minX = math.min(minX, screen.X)
+                maxX = math.max(maxX, screen.X)
+                minY = math.min(minY, screen.Y)
+                maxY = math.max(maxY, screen.Y)
+            end
+        end
+        
+        if not anyVisible then
+            data.bg.Visible = false
+            data.fill.Visible = false
+            data.text.Visible = false
+            return
+        end
+        
+        local espWidth = maxX - minX
+        
+        local scaleFactor = math.clamp(1 - (dist / MAX_CREATE_DISTANCE) * 0.5, 0.3, 1.0)
+        local healthBarWidth = math.clamp(espWidth * 0.8 * scaleFactor, HEALTH_BAR_MIN_WIDTH, HEALTH_BAR_MAX_WIDTH)
+        local healthBarHeight = 10  
+        
+        local centerX = (minX + maxX) / 2
+        local yPos = minY - healthBarHeight - 8
+        
+        local hum = p.Character:FindFirstChildOfClass("Humanoid")
+        local pct = hum and math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1) or 0
+        
+        data.bg.Size = Vector2.new(healthBarWidth, healthBarHeight)
+        data.bg.Position = Vector2.new(centerX - healthBarWidth/2, yPos)
+        data.bg.Visible = true
+        
+        local fillWidth = math.max(2, healthBarWidth * pct)
+        data.fill.Size = Vector2.new(fillWidth, healthBarHeight)
+        data.fill.Position = Vector2.new(centerX - healthBarWidth/2, yPos)
+        data.fill.Visible = true
+        
+        local hp = math.floor((hum and hum.Health) or 0)
+        local max = math.floor((hum and hum.MaxHealth) or 0)
+        data.text.Text = string.format("%d/%d", hp, max)
+        data.text.Position = Vector2.new(centerX, yPos + healthBarHeight/2 - 1)
 
-        if d._scaleConn then return end
-        if d._forceConn then safeDisconnect(d._forceConn) d._forceConn = nil end
+        local textSize = math.clamp(math.floor(healthBarWidth / 6), 12, 16)  
+        data.text.Size = textSize
+        data.text.Visible = true
+    end
+
+    local renderConn
+    local function onRender()
         local cam = workspace.CurrentCamera
         if not cam then return end
-        local conn
-        conn = RunService.RenderStepped:Connect(function()
-            if not d or not d.bill or not d.bill.Parent or not d.bill.Adornee or not d.bill.Adornee.Parent or not cam then
-                safeDisconnect(conn)
-                return
+        
+        local refPos = cam.CFrame.Position
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player == Players.LocalPlayer then continue end
+            
+            local data = healthOverlays[player]
+            
+            if not data then
+                data = createHealthBar(player)
             end
-            local ok, pos = pcall(function() return d.bill.Adornee.Position end)
-            if not ok or not pos then return end
-            local dist = (cam.CFrame.Position - pos).Magnitude
-            local factor
-            if dist <= SCALE_MIN_DIST then
-                factor = SCALE_MIN_FACTOR
-            elseif dist >= SCALE_MAX_DIST then
-                factor = SCALE_MAX_FACTOR
-            else
-                local t = (dist - SCALE_MIN_DIST) / (SCALE_MAX_DIST - SCALE_MIN_DIST)
-                factor = SCALE_MIN_FACTOR + t * (SCALE_MAX_FACTOR - SCALE_MIN_FACTOR)
+            
+            if data then
+                updateHealthBar(player, data, cam, refPos)
             end
-            local w = math.max(1, math.floor(HEALTH_BASE_W * factor))
-            local h = math.max(1, math.floor(HEALTH_BASE_H * factor))
-            pcall(function() d.bill.Size = UDim2.new(0, w, 0, h) end)
-        end)
-        d._scaleConn = conn
-    end
-
-    local function makeHealthGuiForCharacter(p, char)
-        if not char then return nil end
-        local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
-        if not head then return nil end
-
-        local bill = Instance.new("BillboardGui")
-        bill.Name = "Rivals_PlayerHealth"
-        bill.Adornee = head
-        bill.Size = UDim2.new(0, HEALTH_BASE_W, 0, HEALTH_BASE_H)
-        bill.StudsOffset = Vector3.new(0, 2.4, 0)
-        bill.AlwaysOnTop = false
-        bill.ClipsDescendants = false
-        bill.ResetOnSpawn = false
-        bill.MaxDistance = math.huge
-        bill.Parent = head
-
-        local bg = Instance.new("Frame")
-        bg.Size = UDim2.new(1,0,1,0)
-        bg.BackgroundTransparency = 1
-        bg.BorderSizePixel = 0
-        bg.Parent = bill
-
-        local barHolder = Instance.new("Frame")
-        barHolder.Size = UDim2.new(0.9,0,0,10)
-        barHolder.Position = UDim2.new(0.05,0,0.18,0)
-        barHolder.BackgroundTransparency = 1
-        barHolder.Parent = bg
-
-        local healthBar = Instance.new("Frame")
-        healthBar.Name = "Fill"
-        healthBar.Size = UDim2.new(1,0,1,0)
-        healthBar.Position = UDim2.new(0,0,0,0)
-        healthBar.BackgroundColor3 = Color3.fromRGB(76, 175, 80)
-        healthBar.BorderSizePixel = 0
-        healthBar.Parent = barHolder
-        local healthCorner = Instance.new("UICorner") healthCorner.CornerRadius = UDim.new(0,6) healthCorner.Parent = healthBar
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1,0,0,14)
-        label.Position = UDim2.new(0,0,0.6,0)
-        label.BackgroundTransparency = 1
-        label.Font = Enum.Font.GothamBold
-        label.TextSize = 12
-        label.TextColor3 = COLORS.white
-        label.TextStrokeTransparency = 0.7
-        label.TextYAlignment = Enum.TextYAlignment.Top
-        label.Parent = bg
-
-        local data = { bill = bill, healthBar = healthBar, label = label, _scaleConn = nil, _forceConn = nil, _fadeConn = nil }
-
-        data._fadeConn = RunService.RenderStepped:Connect(function()
-            if not data or not data.bill or not data.bill.Parent or not data.bill.Adornee then
-                if data and data._fadeConn then safeDisconnect(data._fadeConn) data._fadeConn = nil end
-                return
-            end
-            local refPos = nil
-            local lp = Players.LocalPlayer
-            local char = lp and lp.Character
-            if char then
-                local rp = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("HumanoidRoot")
-                if rp then refPos = rp.Position end
-            end
-            local cam = workspace.CurrentCamera
-            if not refPos and cam then refPos = cam:GetRenderCFrame().p end
-            if not refPos then return end
-            local ok, pos = pcall(function() return data.bill.Adornee.Position end)
-            if not ok or not pos then return end
-            local dist = (pos - refPos).Magnitude
-            local alpha
-            if dist <= FADE_NEAR then alpha = 0
-            elseif dist >= FADE_FAR then alpha = 1
-            else alpha = (dist - FADE_NEAR) / (FADE_FAR - FADE_NEAR) end
-            local textTrans = math.clamp(alpha, 0, 1)
-            local barTrans = math.clamp(0.15 + alpha * 0.85, 0, 1)
-            pcall(function()
-                if data.label then data.label.TextTransparency = textTrans end
-                if data.healthBar then data.healthBar.BackgroundTransparency = barTrans end
-            end)
-        end)
-
-        return data
-    end
-
-    local function updateGuiFromHumanoid(p, hum, data)
-        if not hum or not data then return end
-        local now = tick()
-        data._last = data._last or 0
-        if now - data._last < 0.04 then return end
-        data._last = now
-        pcall(function()
-            local hp = math.max(0, hum.Health)
-            local mh = math.max(1, hum.MaxHealth)
-            local pct = math.clamp(hp / mh, 0, 1)
-            if data.healthBar and data.healthBar:IsA("Frame") then
-                data.healthBar.Size = UDim2.new(pct, 0, 1, 0)
-            end
-            if data.label and data.label:IsA("TextLabel") then
-                data.label.Text = tostring(math.floor(hp)) .. " / " .. tostring(math.floor(mh))
-            end
-        end)
-    end
-
-    local function removeHealthForPlayer(p)
-        if charConns[p] then safeDisconnect(charConns[p]); charConns[p] = nil end
-        if humConns[p] then safeDisconnect(humConns[p]); humConns[p] = nil end
-        if healthGuis[p] then
-            pcall(function()
-                local d = healthGuis[p]
-                if d then
-                    if d._scaleConn then safeDisconnect(d._scaleConn) d._scaleConn = nil end
-                    if d._forceConn then safeDisconnect(d._forceConn) d._forceConn = nil end
-                    if d._fadeConn then safeDisconnect(d._fadeConn) d._fadeConn = nil end
-                    if d.bill and d.bill.Destroy then d.bill:Destroy() end
-                end
-            end)
-            healthGuis[p] = nil
         end
     end
 
-    local function addHealthForPlayer(p)
-        if not p or p == Players.LocalPlayer then return end
-        removeHealthForPlayer(p)
-
-        charConns[p] = p.CharacterAdded:Connect(function(c)
-            pcall(function()
-                removeHealthForPlayer(p)
-                healthGuis[p] = makeHealthGuiForCharacter(p, c)
-                local autoscale = GetConfig("settings.autoScaleUI", false)
-                if healthGuis[p] then
-                    applyScalingToData(healthGuis[p], autoscale)
-                end
-                local hum = c:FindFirstChildOfClass("Humanoid")
-                if hum and healthGuis[p] then
-                    updateGuiFromHumanoid(p, hum, healthGuis[p])
-                    humConns[p] = hum.HealthChanged:Connect(function() updateGuiFromHumanoid(p, hum, healthGuis[p]) end)
-                end
-            end)
+    local function addPlayer(p)
+        if p == Players.LocalPlayer then return end
+        
+        charConns[p] = p.CharacterAdded:Connect(function()
+            createHealthBar(p)
         end)
-
-        local char = p.Character
-        if char then
-            pcall(function()
-                healthGuis[p] = makeHealthGuiForCharacter(p, char)
-                local autoscale = GetConfig("settings.autoScaleUI", false)
-                if healthGuis[p] then
-                    applyScalingToData(healthGuis[p], autoscale)
-                end
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum and healthGuis[p] then
-                    updateGuiFromHumanoid(p, hum, healthGuis[p])
-                    humConns[p] = hum.HealthChanged:Connect(function() updateGuiFromHumanoid(p, hum, healthGuis[p]) end)
-                end
-            end)
+        
+        humConns[p] = nil
+        
+        if p.Character then
+            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                humConns[p] = hum.HealthChanged:Connect(function()
+                end)
+            end
         end
+        
+        local charAddedConn
+        charAddedConn = p.CharacterAdded:Connect(function(char)
+            task.wait(0.5)
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                humConns[p] = hum.HealthChanged:Connect(function()
+                end)
+            end
+        end)
+        
+        if charConns[p] ~= charAddedConn then
+            table.insert(charConns, charAddedConn)
+        end
+    end
+
+    local function removePlayer(p)
+        safeDisconnect(charConns[p])
+        charConns[p] = nil
+        
+        safeDisconnect(humConns[p])
+        humConns[p] = nil
+        
+        removeHealthBar(p)
     end
 
     local playerAddedConn, playerRemovingConn
     local function enableHealth()
-        for _,p in ipairs(Players:GetPlayers()) do pcall(function() addHealthForPlayer(p) end) end
-        playerAddedConn = Players.PlayerAdded:Connect(function(p) pcall(function() addHealthForPlayer(p) end) end)
-        playerRemovingConn = Players.PlayerRemoving:Connect(function(p) pcall(function() removeHealthForPlayer(p) end) end)
+        for _, p in ipairs(Players:GetPlayers()) do
+            addPlayer(p)
+        end
+        
+        playerAddedConn = Players.PlayerAdded:Connect(addPlayer)
+        playerRemovingConn = Players.PlayerRemoving:Connect(removePlayer)
+        
+        if not renderConn then
+            renderConn = RunService.RenderStepped:Connect(onRender)
+        end
     end
 
     local function disableHealth()
-        if playerAddedConn then safeDisconnect(playerAddedConn); playerAddedConn = nil end
-        if playerRemovingConn then safeDisconnect(playerRemovingConn); playerRemovingConn = nil end
-        for p,_ in pairs(charConns) do safeDisconnect(charConns[p]); charConns[p] = nil end
-        for p,_ in pairs(healthGuis) do removeHealthForPlayer(p) end
+        if renderConn then
+            renderConn:Disconnect()
+            renderConn = nil
+        end
+        
+        if playerAddedConn then
+            playerAddedConn:Disconnect()
+            playerAddedConn = nil
+        end
+        
+        if playerRemovingConn then
+            playerRemovingConn:Disconnect()
+            playerRemovingConn = nil
+        end
+        
+        for p, _ in pairs(charConns) do
+            safeDisconnect(charConns[p])
+        end
+        charConns = {}
+        
+        for p, _ in pairs(humConns) do
+            safeDisconnect(humConns[p])
+        end
+        humConns = {}
+        
+        for p, _ in pairs(healthOverlays) do
+            removeHealthBar(p)
+        end
+        healthOverlays = {}
     end
 
     local api = ToggleAPI[playerHealthToggle]
@@ -2690,65 +2789,43 @@ do
         local prev = api.OnToggle
         api.OnToggle = function(state)
             if prev then pcall(prev, state) end
-            if state then pcall(enableHealth) else pcall(disableHealth) end
+            if state then enableHealth() else disableHealth() end
         end
-        pcall(function() if api.Get and api.Get() then enableHealth() end end)
-    end
-
-    do
-        local autoscaleApi = ToggleAPI[autoScaleUIToggle]
-        local prevAuto = autoscaleApi and autoscaleApi.OnToggle
-        if autoscaleApi then
-            autoscaleApi.OnToggle = function(s)
-                if prevAuto then pcall(prevAuto, s) end
-                pcall(function()
-                    for _, d in pairs(healthGuis) do
-                        pcall(function() applyScalingToData(d, s) end)
-                    end
-                end)
-            end
+        if api.Get and api.Get() then
+            enableHealth()
         end
     end
 
-    do
-        local KEY_CONFIG = "settings.showHealthKey"
-        local keyApi = KeybindAPI[showHealthKeybind]
-        pcall(function()
-            local saved = GetConfig(KEY_CONFIG, "P")
-            if keyApi and type(saved) == "string" and Enum.KeyCode[saved] then pcall(function() keyApi.Set(Enum.KeyCode[saved]) end) end
-        end)
-        if keyApi then
-            keyApi.OnBind = function(k)
-                local name = nil
-                if typeof(k) == "EnumItem" then name = k.Name elseif type(k) == "string" then name = tostring(k) end
-                if name then SetConfig(KEY_CONFIG, name) end
-            end
+    local keyApi = KeybindAPI[showHealthKeybind]
+    if keyApi then
+        local saved = GetConfig(KEY_CONFIG, "P")
+        if type(saved) == "string" and Enum.KeyCode[saved] then
+            keyApi.Set(Enum.KeyCode[saved])
         end
-
-        local keyConn
-        keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-            if gameProcessed then return end
-            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-            local bound = GetConfig(KEY_CONFIG, "P")
-            if not bound then return end
-            local target = Enum.KeyCode[bound]
-            if not target then return end
-            if input.KeyCode == target then
-                pcall(function()
-                    local tapi = ToggleAPI[playerHealthToggle]
-                    if tapi and tapi.Get and tapi.Set then
-                        tapi.Set(not tapi.Get())
-                    end
-                end)
-            end
-        end)
-
-        RegisterUnload(function()
-            if keyConn and keyConn.Disconnect then pcall(function() keyConn:Disconnect() end) keyConn = nil end
-        end)
+        
+        keyApi.OnBind = function(k)
+            local name = k.Name or tostring(k)
+            SetConfig(KEY_CONFIG, name)
+        end
     end
 
-    RegisterUnload(function() pcall(disableHealth) end)
+    local keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        
+        local bound = GetConfig(KEY_CONFIG, "P")
+        local target = bound and Enum.KeyCode[bound]
+        if target and input.KeyCode == target then
+            local tapi = ToggleAPI[playerHealthToggle]
+            if tapi and tapi.Get and tapi.Set then
+                tapi.Set(not tapi.Get())
+            end
+        end
+    end)
+
+    RegisterUnload(function()
+        if keyConn then keyConn:Disconnect() end
+        disableHealth()
+    end)
 end
 
 -- ** Player Health Logic Ends Here **
@@ -3191,3 +3268,184 @@ end
 -- ** Aim Lock Keybind Logic Ends Here ** --
 
 ---------------------------------------------------------------------------
+
+-- ** Show Enemy Weapons Logic Starts Here **
+
+do
+    local LocalPlayer = Players.LocalPlayer
+    local ViewModels = workspace:FindFirstChild("ViewModels")
+    
+    if not ViewModels then
+        return
+    end
+    
+    local isEnabled = false
+    local labels = {}
+    local lastUpdate = 0
+    local updateInterval = 0.2
+    
+    local labelContainer = Instance.new("Frame")
+    labelContainer.Name = "EnemyWeaponLabels"
+    labelContainer.Size = UDim2.new(0.25, 0, 0.3, 0)
+    labelContainer.Position = UDim2.new(0.73, 10, 0.05, 0)
+    labelContainer.BackgroundTransparency = 1
+    labelContainer.Visible = false
+    labelContainer.Parent = gui
+    
+    local layout = Instance.new("UIListLayout")
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 2)
+    layout.Parent = labelContainer
+    
+    local function extractWeaponName(modelName)
+        local parts = string.split(modelName, " - ")
+        if #parts >= 3 then
+            return parts[3]
+        elseif #parts >= 2 then
+            return parts[2]
+        end
+        return modelName
+    end
+    
+    local function extractPlayerName(modelName)
+        local parts = string.split(modelName, " - ")
+        if #parts >= 1 then
+            return parts[1]
+        end
+        return "Unknown"
+    end
+    
+    local function createWeaponLabel(playerName)
+        local label = Instance.new("TextLabel")
+        label.Name = "WeaponLabel_" .. playerName
+        label.Size = UDim2.new(1, 0, 0, 28)
+        label.BackgroundTransparency = 0.85
+        label.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+        label.Font = Enum.Font.GothamSemibold
+        label.TextSize = 13
+        label.TextColor3 = Color3.fromRGB(220, 220, 220)
+        label.Text = ""
+        label.TextStrokeTransparency = 0.7
+        label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        label.LayoutOrder = #labelContainer:GetChildren()
+        label.Visible = false
+        label.Parent = labelContainer
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 4)
+        corner.Parent = label
+        
+        local padding = Instance.new("UIPadding")
+        padding.PaddingLeft = UDim.new(0, 8)
+        padding.PaddingRight = UDim.new(0, 8)
+        padding.Parent = label
+        
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(40, 40, 40)
+        stroke.Thickness = 1
+        stroke.Transparency = 0.7
+        stroke.Parent = label
+        
+        return label
+    end
+    
+    local function updateWeaponDisplay()
+        if not isEnabled then return end
+        
+        local currentTime = tick()
+        if currentTime - lastUpdate < updateInterval then return end
+        lastUpdate = currentTime
+        
+        local activePlayers = {}
+        
+        for _, weapon in pairs(ViewModels:GetChildren()) do
+            if weapon:IsA("Model") then
+                local playerName = extractPlayerName(weapon.Name)
+                local weaponName = extractWeaponName(weapon.Name)
+                
+                if playerName == LocalPlayer.Name then
+                    continue
+                end
+                
+                local player = Players:FindFirstChild(playerName)
+                if not player then
+                    continue
+                end
+                
+                activePlayers[playerName] = weaponName
+                
+                if not labels[playerName] then
+                    labels[playerName] = createWeaponLabel(playerName)
+                end
+                
+                local label = labels[playerName]
+                label.Text = playerName .. " | " .. weaponName
+                label.Visible = true
+            end
+        end
+        
+        for playerName, label in pairs(labels) do
+            if not activePlayers[playerName] then
+                label.Visible = false
+            end
+        end
+    end
+    
+    local function enableWeaponDisplay()
+        if isEnabled then return end
+        
+        isEnabled = true
+        labelContainer.Visible = true
+        
+        local updateConnection = RunService.Heartbeat:Connect(updateWeaponDisplay)
+        
+        _G.RivalsCHTUI.RegisterUnload(function()
+            isEnabled = false
+            labelContainer.Visible = false
+            updateConnection:Disconnect()
+            for _, label in pairs(labels) do
+                label:Destroy()
+            end
+            labels = {}
+            if labelContainer and labelContainer.Parent then
+                labelContainer:Destroy()
+            end
+        end)
+    end
+    
+    local function disableWeaponDisplay()
+        if not isEnabled then return end
+        
+        isEnabled = false
+        labelContainer.Visible = false
+        for _, label in pairs(labels) do
+            label.Visible = false
+        end
+    end
+    
+    local function onToggleChanged(state)
+        if state then
+            enableWeaponDisplay()
+        else
+            disableWeaponDisplay()
+        end
+    end
+    
+    local initialEnabled = GetConfig("visuals.showEnemyWeapons", false)
+    onToggleChanged(initialEnabled)
+    
+    local toggleAPI = ToggleAPI[showEnemyWeaponsToggle]
+    if toggleAPI then
+        toggleAPI.OnToggle = function(state)
+            onToggleChanged(state)
+        end
+    end
+end
+
+-- ** Show Enemy Weapons Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- =================== Very end of Your Desire =================== --
+
+-- ** Like a wise man once said, "Show me the client's state, and I'll show you the perfect hook." some guy lol ** --
