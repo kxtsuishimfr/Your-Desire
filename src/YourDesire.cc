@@ -34,21 +34,22 @@ local RECENT_NOTIFS = setmetatable({}, { __mode = "k" })
 
 -- ** Color palette (Screen_GUI) **
 local COLORS = {
-    bg = Color3.fromRGB(26,26,26),
-    panel = Color3.fromRGB(30,30,30),
-    panelAlt = Color3.fromRGB(40,40,40),
-    panelDark = Color3.fromRGB(44,44,44),
-    divider = Color3.fromRGB(64,64,64),
-    accent = Color3.fromRGB(0,150,255),
-    accentHover = Color3.fromRGB(0,170,255),
-    text = Color3.fromRGB(235,235,235),
-    textDim = Color3.fromRGB(200,200,200),
-    tabText = Color3.fromRGB(220,220,220),
-    highlight = Color3.fromRGB(80,80,80),
+    bg = Color3.fromRGB(20,18,30),     
+    panel = Color3.fromRGB(28,24,38),       
+    panelAlt = Color3.fromRGB(38,30,50),    
+    panelDark = Color3.fromRGB(18,16,25),   
+    divider = Color3.fromRGB(70,50,80),    
+    accent = Color3.fromRGB(200,80,180),    
+    accentHover = Color3.fromRGB(220,100,200), 
+    text = Color3.fromRGB(240,240,245),     
+    textDim = Color3.fromRGB(180,170,190),  
+    tabText = Color3.fromRGB(220,200,230),  
+    highlight = Color3.fromRGB(90,70,100),  
     white = Color3.fromRGB(255,255,255),
-    close = Color3.fromRGB(255,255,255),
-    closeHover = Color3.fromRGB(220,50,50),
+    close = Color3.fromRGB(255,200,200),   
+    closeHover = Color3.fromRGB(255,120,150), 
 }
+
 
 ----------------------------------------------------------------------------
 
@@ -323,9 +324,10 @@ end
 ---------------------------------------------------------------------------
 
 -- ** makeToggle
+
 local function makeToggle(parent, labelText)
     local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(1, 0, 0, 34)
+    frame.Size = UDim2.new(1, 0, 0, 36)
     frame.BackgroundTransparency = 1
     frame.Parent = parent
 
@@ -334,45 +336,110 @@ local function makeToggle(parent, labelText)
     label.BackgroundTransparency = 1
     label.Text = labelText or "Toggle"
     label.Font = Enum.Font.GothamBold
-    label.TextSize = 18
+    label.TextSize = 17
     label.TextColor3 = COLORS.text
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = frame
 
+    local surfaceColor = COLORS.panel or COLORS.bg or COLORS.panelAlt
+    local bgColor = COLORS.bg or COLORS.panel or surfaceColor
+    local lightStroke = (COLORS.panel or COLORS.bg):Lerp(COLORS.text, 0.18)
+
     local toggle = Instance.new("Frame")
-    toggle.Size = UDim2.new(0, 52, 0, 26)
-    toggle.AnchorPoint = Vector2.new(1,0.5)
+    toggle.Size = UDim2.new(0, 56, 0, 28)
+    toggle.AnchorPoint = Vector2.new(1, 0.5)
     toggle.Position = UDim2.new(1, -8, 0.5, 0)
-    toggle.BackgroundColor3 = COLORS.panelDark
+    toggle.BackgroundColor3 = surfaceColor
+    toggle.ClipsDescendants = true
     toggle.Parent = frame
-    local toggleCorner = Instance.new("UICorner") toggleCorner.CornerRadius = UDim.new(0, 14) toggleCorner.Parent = toggle
+
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 14)
+    toggleCorner.Parent = toggle
+
+    local toggleStroke = Instance.new("UIStroke")
+    toggleStroke.Thickness = 1
+    toggleStroke.Color = lightStroke
+    toggleStroke.Transparency = 0.85
+    toggleStroke.Parent = toggle
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.Position = UDim2.new(0, 0, 0, 0)
+    local accentVisible = (COLORS.accent or COLORS.text):Lerp(COLORS.white or Color3.new(1,1,1), 0.18)
+    fill.BackgroundColor3 = accentVisible
+    fill.BackgroundTransparency = 1
+    fill.Parent = toggle
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(0, 14)
+    fillCorner.Parent = fill
+
+    local knobShadow = Instance.new("Frame")
+    knobShadow.Size = UDim2.new(0, 26, 0, 26)
+    knobShadow.AnchorPoint = Vector2.new(0, 0.5)
+    knobShadow.Position = UDim2.new(0, 4, 0.5, 0)
+    knobShadow.BackgroundColor3 = (bgColor or surfaceColor):Lerp(COLORS.white or Color3.new(1,1,1), 0.9)
+    knobShadow.BackgroundTransparency = 0.9
+    knobShadow.ZIndex = 1
+    knobShadow.Parent = toggle
+    local ksCorner = Instance.new("UICorner")
+    ksCorner.CornerRadius = UDim.new(0, 13)
+    ksCorner.Parent = knobShadow
 
     local knob = Instance.new("Frame")
-    knob.Size = UDim2.new(0, 20, 0, 20)
-    knob.AnchorPoint = Vector2.new(0,0.5)
-    knob.Position = UDim2.new(0, 4, 0.5, 0)
-    knob.BackgroundColor3 = COLORS.white
+    knob.Size = UDim2.new(0, 22, 0, 22)
+    knob.AnchorPoint = Vector2.new(0, 0.5)
+    knob.Position = UDim2.new(0, 6, 0.5, 0)
+    knob.BackgroundColor3 = COLORS.white or Color3.new(1,1,1)
+    knob.ZIndex = 2
     knob.Parent = toggle
-    local knobCorner = Instance.new("UICorner") knobCorner.CornerRadius = UDim.new(0, 10) knobCorner.Parent = knob
+    local kCorner = Instance.new("UICorner")
+    kCorner.CornerRadius = UDim.new(0, 11)
+    kCorner.Parent = knob
 
-    -- ** shadow under knob
-    local shadow = Instance.new("Frame")
-    shadow.Size = UDim2.new(1,0,1,0)
-    shadow.BackgroundTransparency = 1
-    shadow.Parent = knob
+    local kStroke = Instance.new("UIStroke")
+    kStroke.Thickness = 1
+    kStroke.Color = (COLORS.panel or COLORS.bg):Lerp(COLORS.text, 0.14)
+    kStroke.Transparency = 0.9
+    kStroke.Parent = knob
+
+    local inner = Instance.new("Frame")
+    inner.Size = UDim2.new(0, 8, 0, 8)
+    inner.AnchorPoint = Vector2.new(0.5, 0.5)
+    inner.Position = UDim2.new(0.5, 0.5, 0.5, 0)
+    inner.BackgroundColor3 = accentVisible
+    inner.BackgroundTransparency = 1
+    inner.ZIndex = 3
+    inner.Parent = knob
+    local innerCorner = Instance.new("UICorner")
+    innerCorner.CornerRadius = UDim.new(1, 0)
+    innerCorner.Parent = inner
 
     local state = false
-    local tweenInfo = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tweenInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
-    local function setVisual(active)
-        state = not not active
+    local function setVisual(on)
+        state = not not on
+
         if state then
-            TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = COLORS.accent}):Play()
-            TweenService:Create(knob, tweenInfo, {Position = UDim2.new(1, -24, 0.5, 0)}):Play()
+            TweenService:Create(fill, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 0.45}):Play()
+            local targetBg = surfaceColor:Lerp(accentVisible, 0.06)
+            TweenService:Create(toggle, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetBg}):Play()
+            TweenService:Create(knob, TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(1, -30, 0.5, 0)}):Play()
+            TweenService:Create(knobShadow, TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(1, -34, 0.5, 0), BackgroundTransparency = 0.92}):Play()
+            TweenService:Create(inner, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0, 10, 0, 10), BackgroundTransparency = 0}):Play()
+            toggleStroke.Color = accentVisible
+            TweenService:Create(kStroke, TweenInfo.new(0.18), {Transparency = 1}):Play()
         else
-            TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = COLORS.panelDark}):Play()
-            TweenService:Create(knob, tweenInfo, {Position = UDim2.new(0, 4, 0.5, 0)}):Play()
+            TweenService:Create(fill, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0, 0, 1, 0), BackgroundTransparency = 1}):Play()
+            TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = surfaceColor}):Play()
+            TweenService:Create(knob, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, 6, 0.5, 0)}):Play()
+            TweenService:Create(knobShadow, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, 4, 0.5, 0), BackgroundTransparency = 0.9}):Play()
+            TweenService:Create(inner, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0, 8, 0, 8), BackgroundTransparency = 1}):Play()
+            toggleStroke.Color = lightStroke
+            TweenService:Create(kStroke, TweenInfo.new(0.18), {Transparency = 0.9}):Play()
         end
+
         local api = ToggleAPI[frame]
         if api and type(api.OnToggle) == "function" then
             pcall(api.OnToggle, state)
@@ -380,23 +447,29 @@ local function makeToggle(parent, labelText)
     end
 
     ToggleAPI[frame] = {
-        Set = function(val) setVisual(val) end,
+        Set = function(v) setVisual(v) end,
         Get = function() return state end,
         OnToggle = nil,
     }
 
-    -- ** hover thing
     toggle.MouseEnter:Connect(function()
-        TweenService:Create(toggle, TweenInfo.new(0.12), {BackgroundColor3 = toggle.BackgroundColor3:Lerp(COLORS.highlight, 0.25)}):Play()
+        TweenService:Create(knob, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0, 24, 0, 24)}):Play()
     end)
     toggle.MouseLeave:Connect(function()
-        TweenService:Create(toggle, TweenInfo.new(0.12), {BackgroundColor3 = state and COLORS.accent or COLORS.panelDark}):Play()
+        TweenService:Create(knob, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0, 22, 0, 22)}):Play()
     end)
 
     toggle.Active = true
     toggle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             setVisual(not state)
+            local s = (state and 1.03) or 0.97
+            TweenService:Create(knob, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0, 22 * s, 0, 22 * s)}):Play()
+            delay(0.07, function()
+                pcall(function()
+                    TweenService:Create(knob, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0, 22, 0, 22)}):Play()
+                end)
+            end)
         end
     end)
 
@@ -3448,4 +3521,4 @@ end
 
 -- =================== Very end of Your Desire =================== --
 
--- ** Like a wise man once said, "Show me the client's state, and I'll show you the perfect hook." some guy lol ** --
+-- ** Like a wise man once said, "Show me the client's state, and I'll show you the perfect hook" - some guy lol ** --
