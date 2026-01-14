@@ -1312,7 +1312,7 @@ local function makeColorPicker(parent, labelText, defaultColor)
     palette.ClipsDescendants = true
     palette.Visible = false
     palette.Parent = frame
-    local TOP_Z = 10050
+    local TOP_Z = 600
     palette.ZIndex = TOP_Z
     local palCorner = Instance.new("UICorner") palCorner.CornerRadius = UDim.new(0,8) palCorner.Parent = palette
     local palStroke = Instance.new("UIStroke") palStroke.Thickness = 1; palStroke.Color = COLORS.divider; palStroke.Parent = palette
@@ -2917,6 +2917,58 @@ do
     local aimAccumX, aimAccumY = 0, 0
     local teamCheckEnabled = GetConfig("combat.teamCheck", true) or true
     local teammateCache = {}
+
+    -- ** Team check api ** --
+    _G.RivalsCHT_TeamCheck = _G.RivalsCHT_TeamCheck or {}
+    do
+        local teamApi = _G.RivalsCHT_TeamCheck
+        teamApi.GetCache = function() return teammateCache end
+        teamApi.IsTeammate = function(playerOrName)
+            if not playerOrName then return false end
+            local Players = game:GetService("Players")
+            local pl = nil
+            if type(playerOrName) == "string" then
+                pl = Players:FindFirstChild(playerOrName)
+                if not pl then return false end
+            else
+                pl = playerOrName
+            end
+            local entry = teammateCache[pl]
+            if entry and entry.isTeam ~= nil then return entry.isTeam end
+            local ok, isTeam = pcall(function()
+                local ch = pl.Character
+                local head = ch and (ch:FindFirstChild("Head") or ch:FindFirstChild("HumanoidRootPart"))
+                if head then
+                    local hrp = head
+                    if hrp and hrp.Name ~= "HumanoidRootPart" then
+                        hrp = head.Parent and head.Parent:FindFirstChild("HumanoidRootPart")
+                    end
+                    if hrp then
+                        local ok2, lbl = pcall(function() return hrp:FindFirstChild("TeammateLabel") end)
+                        local res = ok2 and lbl ~= nil
+                        teammateCache[pl] = { hrp = hrp, isTeam = res }
+                        return res
+                    end
+                end
+                teammateCache[pl] = { hrp = nil, isTeam = false }
+                return false
+            end)
+            return ok and isTeam or false
+        end
+        teamApi.GetTeammates = function()
+            local t = {}
+            for p,v in pairs(teammateCache) do if v and v.isTeam then table.insert(t,p) end end
+            return t
+        end
+        teamApi.Invalidate = function(playerOrName)
+            local Players = game:GetService("Players")
+            if not playerOrName then for k in pairs(teammateCache) do teammateCache[k] = nil end; return end
+            local pl = (type(playerOrName) == "string") and Players:FindFirstChild(playerOrName) or playerOrName
+            if pl then teammateCache[pl] = nil end
+        end
+    end
+
+    -- ** end of team check ** --
     local playerRemoveConn
     pcall(function()
         playerRemoveConn = Players.PlayerRemoving:Connect(function(p)
@@ -3357,17 +3409,23 @@ do
     local lastUpdate = 0
     local updateInterval = 0.2
     
+    -- compact, themed container using Screen GUI color palette
     local labelContainer = Instance.new("Frame")
     labelContainer.Name = "EnemyWeaponLabels"
-    labelContainer.Size = UDim2.new(0.25, 0, 0.3, 0)
-    labelContainer.Position = UDim2.new(0.73, 10, 0.05, 0)
-    labelContainer.BackgroundTransparency = 1
+    labelContainer.Size = UDim2.new(0, 200, 0, 140)
+    labelContainer.Position = UDim2.new(1, -220, 0, 24)
+    labelContainer.AnchorPoint = Vector2.new(0, 0)
+    labelContainer.BackgroundColor3 = COLORS.panel
+    labelContainer.BackgroundTransparency = 0.04
     labelContainer.Visible = false
     labelContainer.Parent = gui
-    
+
+    local containerCorner = Instance.new("UICorner") containerCorner.CornerRadius = UDim.new(0,6) containerCorner.Parent = labelContainer
+    local containerStroke = Instance.new("UIStroke") containerStroke.Color = COLORS.divider containerStroke.Transparency = 0.8 containerStroke.Thickness = 1 containerStroke.Parent = labelContainer
+
     local layout = Instance.new("UIListLayout")
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, 2)
+    layout.Padding = UDim.new(0, 6)
     layout.Parent = labelContainer
     
     local function extractWeaponName(modelName)
@@ -3391,34 +3449,33 @@ do
     local function createWeaponLabel(playerName)
         local label = Instance.new("TextLabel")
         label.Name = "WeaponLabel_" .. playerName
-        label.Size = UDim2.new(1, 0, 0, 28)
-        label.BackgroundTransparency = 0.85
-        label.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+        label.Size = UDim2.new(1, 0, 0, 26)
+        label.BackgroundColor3 = COLORS.panelAlt or Color3.fromRGB(18,18,18)
+        label.BackgroundTransparency = 0
         label.Font = Enum.Font.GothamSemibold
         label.TextSize = 13
-        label.TextColor3 = Color3.fromRGB(220, 220, 220)
+        label.TextColor3 = COLORS.text
         label.Text = ""
-        label.TextStrokeTransparency = 0.7
-        label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        label.TextXAlignment = Enum.TextXAlignment.Left
         label.LayoutOrder = #labelContainer:GetChildren()
         label.Visible = false
         label.Parent = labelContainer
-        
+
         local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 4)
+        corner.CornerRadius = UDim.new(0, 6)
         corner.Parent = label
-        
+
         local padding = Instance.new("UIPadding")
         padding.PaddingLeft = UDim.new(0, 8)
         padding.PaddingRight = UDim.new(0, 8)
         padding.Parent = label
-        
+
         local stroke = Instance.new("UIStroke")
-        stroke.Color = Color3.fromRGB(40, 40, 40)
+        stroke.Color = COLORS.divider
         stroke.Thickness = 1
-        stroke.Transparency = 0.7
+        stroke.Transparency = 0.85
         stroke.Parent = label
-        
+
         return label
     end
     
@@ -3442,6 +3499,15 @@ do
                 
                 local player = Players:FindFirstChild(playerName)
                 if not player then
+                    continue
+                end
+
+                -- skip teammates when displaying enemy weapons
+                local isTeammate = false
+                if _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                    pcall(function() isTeammate = _G.RivalsCHT_TeamCheck.IsTeammate(player) end)
+                end
+                if isTeammate then
                     continue
                 end
                 
@@ -3521,4 +3587,4 @@ end
 
 -- =================== Very end of Your Desire =================== --
 
--- ** Like a wise man once said, "Show me the client's state, and I'll show you the perfect hook" - some guy lol ** --
+-- ** Like a wise man once said, "Show me the client's state, and I'll show you the perfect hook." - some guy lol ** --
