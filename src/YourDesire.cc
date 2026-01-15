@@ -23,6 +23,7 @@ local KeybindAPI = setmetatable({}, { __mode = "k" })
 local SliderAPI = setmetatable({}, { __mode = "k" })
 local ButtonAPI = setmetatable({}, { __mode = "k" })
 local ColorPickerAPI = setmetatable({}, { __mode = "k" })
+local NotificationAPI 
 
 --------------------------------------------------------------------------
 
@@ -50,82 +51,6 @@ local COLORS = {
     closeHover = Color3.fromRGB(255,120,150), 
 }
 
-
-----------------------------------------------------------------------------
-
--- ** Unsupported game check starts here **
-
-local function readSetting(key, default)
-    local ok, contents = pcall(function() return readfile("Rivals-Config.json") end)
-    if not ok or not contents then return default end
-    local success, decoded = pcall(function() return HttpService:JSONDecode(contents) end)
-    if not success or type(decoded) ~= "table" then return default end
-    local cur = decoded
-    for part in string.gmatch(key, "[^%.]+") do
-        if type(cur) ~= "table" then return default end
-        cur = cur[part]
-    end
-    if cur == nil then return default end
-    return cur
-end
-
-local warn = readSetting("settings.warnIfUnsupportedGame", true)
-local ALLOWED_PLACE_IDS = {17625359962, 17625359963}
-local function isPlaceAllowed()
-    for _, id in ipairs(ALLOWED_PLACE_IDS) do
-        if game.PlaceId == id then return true end
-    end
-    return false
-end
-if warn and not isPlaceAllowed() then
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "Rivals_Unsupported"
-    sg.ResetOnSpawn = false
-    local okParent = pcall(function() sg.Parent = game:GetService("CoreGui") end)
-    if not okParent and Players.LocalPlayer then sg.Parent = Players.LocalPlayer:WaitForChild("PlayerGui") end
-
-    local overlay = Instance.new("Frame")
-    overlay.Size = UDim2.new(2,0,2,0)
-    overlay.Position = UDim2.new(-0.5,0,-0.5,0)
-    overlay.BackgroundColor3 = Color3.new(0,0,0)
-    overlay.BackgroundTransparency = 0.45
-    overlay.ZIndex = 10000
-    overlay.Parent = sg
-
-    local pop = Instance.new("Frame")
-    pop.Size = UDim2.new(0,420,0,160)
-    pop.Position = UDim2.new(0.5,0,0.5,0)
-    pop.AnchorPoint = Vector2.new(0.5,0.5)
-    pop.BackgroundColor3 = COLORS.panel
-    pop.BorderSizePixel = 0
-    pop.ZIndex = 10001
-    pop.Parent = sg
-    local pc = Instance.new("UICorner") pc.CornerRadius = UDim.new(0,10) pc.Parent = pop
-    local stroke = Instance.new("UIStroke") stroke.Color = COLORS.divider stroke.Thickness = 1 stroke.Parent = pop
-
-    local header = Instance.new("Frame") header.Size = UDim2.new(1,0,0,40) header.Position = UDim2.new(0,0,0,0) header.BackgroundColor3 = COLORS.bg header.ZIndex = pop.ZIndex + 1 header.Parent = pop
-    local icon = Instance.new("TextLabel") icon.Size = UDim2.new(0,36,1,0) icon.Position = UDim2.new(0,10,0,0) icon.BackgroundTransparency = 1 icon.Font = Enum.Font.GothamBold icon.TextSize = 20 icon.TextColor3 = COLORS.accent icon.Text = "⚠" icon.TextXAlignment = Enum.TextXAlignment.Center icon.ZIndex = header.ZIndex + 1 icon.Parent = header
-    local title = Instance.new("TextLabel") title.Size = UDim2.new(1,-56,1,0) title.Position = UDim2.new(0,56,0,0) title.BackgroundTransparency = 1 title.Font = Enum.Font.GothamBold title.TextSize = 16 title.TextColor3 = COLORS.text title.Text = "Script Run Check" title.TextXAlignment = Enum.TextXAlignment.Left title.ZIndex = header.ZIndex + 1 title.Parent = header
-
-    local msg = Instance.new("TextLabel") msg.Size = UDim2.new(1,-24,0,72) msg.Position = UDim2.new(0,12,0,48) msg.BackgroundTransparency = 1 msg.Font = Enum.Font.Gotham msg.TextSize = 16 msg.TextColor3 = COLORS.textDim msg.Text = "Are you sure you want to run the script?" msg.TextWrapped = true msg.TextXAlignment = Enum.TextXAlignment.Center msg.ZIndex = pop.ZIndex + 1 msg.Parent = pop
-
-    local btnNo = Instance.new("TextButton") btnNo.Size = UDim2.new(0.44,-8,0,40) btnNo.Position = UDim2.new(0,12,1,-52) btnNo.BackgroundColor3 = COLORS.bg btnNo.Font = Enum.Font.GothamBold btnNo.TextSize = 16 btnNo.TextColor3 = COLORS.text btnNo.Text = "No.." btnNo.ZIndex = pop.ZIndex + 1 btnNo.Parent = pop local noCorner = Instance.new("UICorner") noCorner.CornerRadius = UDim.new(0,8) noCorner.Parent = btnNo local noStroke = Instance.new("UIStroke") noStroke.Color = COLORS.divider noStroke.Thickness = 1 noStroke.Parent = btnNo
-    local btnYes = Instance.new("TextButton") btnYes.Size = UDim2.new(0.44,-8,0,40) btnYes.Position = UDim2.new(1,-12,1,-52) btnYes.AnchorPoint = Vector2.new(1,0) btnYes.BackgroundColor3 = COLORS.accent btnYes.Font = Enum.Font.GothamBold btnYes.TextSize = 16 btnYes.TextColor3 = COLORS.white btnYes.Text = "Yes!" btnYes.ZIndex = pop.ZIndex + 1 btnYes.Parent = pop local yesCorner = Instance.new("UICorner") yesCorner.CornerRadius = UDim.new(0,8) yesCorner.Parent = btnYes
-
-    local choice
-    btnNo.MouseButton1Click:Connect(function() choice = false end)
-    btnYes.MouseButton1Click:Connect(function() choice = true end)
-
-    while choice == nil do wait() end
-    if choice == false then
-        if sg and sg.Parent then sg:Destroy() end
-        return
-    else
-        if sg and sg.Parent then sg:Destroy() end
-    end
-end
-
--- ** Unsupported game check ends here **
 -----------------------------------------------------------------------------
 local player = Players.LocalPlayer
 local FIRST_TAB = nil -- ** select first tab
@@ -311,7 +236,6 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
         end,
     }
 
-    -- record the first tab created
     pcall(function()
         if FIRST_TAB == nil then
             FIRST_TAB = { button = btn, page = page }
@@ -320,7 +244,6 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
 
     return tab
 end
-
 ---------------------------------------------------------------------------
 
 -- ** makeToggle
@@ -488,8 +411,15 @@ end
 --------------------------------------------------------------------------
 
 -- ** makeNotification
-local function makeNotification(text, duration, parent)
+local function makeNotification(text, duration, parent, invoker)
     local dur = (type(duration) == "number" and duration > 0) and duration or 3
+    local okCheck, allowed = pcall(function()
+        if type(NotificationAPI) == "table" and type(NotificationAPI.CanCreate) == "function" then
+            return NotificationAPI.CanCreate(invoker)
+        end
+        return true
+    end)
+    if not okCheck or not allowed then return nil end
     local parentGui
     do
         local Players = game:GetService("Players")
@@ -518,16 +448,10 @@ local function makeNotification(text, duration, parent)
         end
     end
 
-    local ok2, blocked = pcall(function()
-        local api = ToggleAPI[enableNotificationsToggle]
-        if api and type(api.Get) == "function" then
-            return not api.Get()
-        end
-        return false
-    end)
-    if ok2 and blocked then return nil end
-
     if NOTIFICATIONS_ENABLED == false then return nil end
+    if type(NotificationAPI) == "table" and type(NotificationAPI.CanCreate) == "function" then
+        if not NotificationAPI.CanCreate(invoker) then return nil end
+    end
 
     local holder = parentGui:FindFirstChild("RivalsNotificationsHolder")
     if not holder then
@@ -1466,7 +1390,6 @@ local function makeColorPicker(parent, labelText, defaultColor)
         OnChange = nil,
     }
 
-    -- ** the entire picker draws above other UI
     pcall(function()
         local function setDescZ(obj)
             if not obj then return end
@@ -1495,6 +1418,8 @@ local function makeColorPicker(parent, labelText, defaultColor)
 
     return frame
 end
+
+
 --------------------------------------------------------------------------
 
 -- ** Config Stuff
@@ -1561,11 +1486,81 @@ end
 
 --------------------------------------------------------------------------
 
+-- ** Unsupported game check starts here ** --
+local function showUnsupportedPopup()
+    local warn = GetConfig("settings.warnIfUnsupportedGame", false)
+
+    local ALLOWED_PLACE_IDS = {17625359962, 17625359963}
+    local function isPlaceAllowed()
+        for _, id in ipairs(ALLOWED_PLACE_IDS) do
+            if game.PlaceId == id then return true end
+        end
+        return false
+    end
+
+    local allowed = isPlaceAllowed()
+
+    if not warn or allowed then return end
+
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "Rivals_Unsupported"
+    sg.ResetOnSpawn = false
+    local okParent = pcall(function() sg.Parent = game:GetService("CoreGui") end)
+    if not okParent and Players.LocalPlayer then sg.Parent = Players.LocalPlayer:WaitForChild("PlayerGui") end
+
+    local overlay = Instance.new("Frame")
+    overlay.Size = UDim2.new(2,0,2,0)
+    overlay.Position = UDim2.new(-0.5,0,-0.5,0)
+    overlay.BackgroundColor3 = Color3.new(0,0,0)
+    overlay.BackgroundTransparency = 0.45
+    overlay.ZIndex = 10000
+    overlay.Parent = sg
+
+    local pop = Instance.new("Frame")
+    pop.Size = UDim2.new(0,420,0,160)
+    pop.Position = UDim2.new(0.5,0,0.5,0)
+    pop.AnchorPoint = Vector2.new(0.5,0.5)
+    pop.BackgroundColor3 = COLORS.panel
+    pop.BorderSizePixel = 0
+    pop.ZIndex = 10001
+    pop.Parent = sg
+    local pc = Instance.new("UICorner") pc.CornerRadius = UDim.new(0,10) pc.Parent = pop
+    local stroke = Instance.new("UIStroke") stroke.Color = COLORS.divider stroke.Thickness = 1 stroke.Parent = pop
+
+    local header = Instance.new("Frame") header.Size = UDim2.new(1,0,0,40) header.Position = UDim2.new(0,0,0,0) header.BackgroundColor3 = COLORS.bg header.ZIndex = pop.ZIndex + 1 header.Parent = pop
+    local icon = Instance.new("TextLabel") icon.Size = UDim2.new(0,36,1,0) icon.Position = UDim2.new(0,10,0,0) icon.BackgroundTransparency = 1 icon.Font = Enum.Font.GothamBold icon.TextSize = 20 icon.TextColor3 = COLORS.accent icon.Text = "⚠" icon.TextXAlignment = Enum.TextXAlignment.Center icon.ZIndex = header.ZIndex + 1 icon.Parent = header
+    local title = Instance.new("TextLabel") title.Size = UDim2.new(1,-56,1,0) title.Position = UDim2.new(0,56,0,0) title.BackgroundTransparency = 1 title.Font = Enum.Font.GothamBold title.TextSize = 16 title.TextColor3 = COLORS.text title.Text = "Script Run Check" title.TextXAlignment = Enum.TextXAlignment.Left title.ZIndex = header.ZIndex + 1 title.Parent = header
+
+    local msg = Instance.new("TextLabel") msg.Size = UDim2.new(1,-24,0,72) msg.Position = UDim2.new(0,12,0,48) msg.BackgroundTransparency = 1 msg.Font = Enum.Font.Gotham msg.TextSize = 16 msg.TextColor3 = COLORS.textDim msg.Text = "Are you sure you want to run the script?" msg.TextWrapped = true msg.TextXAlignment = Enum.TextXAlignment.Center msg.ZIndex = pop.ZIndex + 1 msg.Parent = pop
+
+    local btnNo = Instance.new("TextButton") btnNo.Size = UDim2.new(0.44,-8,0,40) btnNo.Position = UDim2.new(0,12,1,-52) btnNo.BackgroundColor3 = COLORS.bg btnNo.Font = Enum.Font.GothamBold btnNo.TextSize = 16 btnNo.TextColor3 = COLORS.text btnNo.Text = "No.." btnNo.ZIndex = pop.ZIndex + 1 btnNo.Parent = pop local noCorner = Instance.new("UICorner") noCorner.CornerRadius = UDim.new(0,8) noCorner.Parent = btnNo local noStroke = Instance.new("UIStroke") noStroke.Color = COLORS.divider noStroke.Thickness = 1 noStroke.Parent = btnNo
+    local btnYes = Instance.new("TextButton") btnYes.Size = UDim2.new(0.44,-8,0,40) btnYes.Position = UDim2.new(1,-12,1,-52) btnYes.AnchorPoint = Vector2.new(1,0) btnYes.BackgroundColor3 = COLORS.accent btnYes.Font = Enum.Font.GothamBold btnYes.TextSize = 16 btnYes.TextColor3 = COLORS.white btnYes.Text = "Yes!" btnYes.ZIndex = pop.ZIndex + 1 btnYes.Parent = pop local yesCorner = Instance.new("UICorner") yesCorner.CornerRadius = UDim.new(0,8) yesCorner.Parent = btnYes
+
+    local choice
+    btnNo.MouseButton1Click:Connect(function() choice = false end)
+    btnYes.MouseButton1Click:Connect(function() choice = true end)
+
+    while choice == nil do wait() end
+    if choice == false then
+        if sg and sg.Parent then sg:Destroy() end
+        return
+    else
+        if sg and sg.Parent then sg:Destroy() end
+    end
+end
+
+-- ** Unsupported game check ends here **
+
+-- Invoke now that `Config` is available and the function is defined
+pcall(function() if type(showUnsupportedPopup) == "function" then showUnsupportedPopup() end end)
+
+--------------------------------------------------------------------------
+
 -- ** Build UI
 local root = Instance.new("Frame")
 root.Size = UDim2.new(0, 760, 0, 520)
 root.Position = UDim2.new(0.5, -380, 0.5, -260)
-root.AnchorPoint = Vector2.new(0.5,0.5)
+root.AnchorPoint = Vector2.new(0.0,0.0)
 root.BackgroundColor3 = COLORS.bg
 root.Parent = gui
 local rootCorner = Instance.new("UICorner") rootCorner.Parent = root
@@ -1857,12 +1852,14 @@ local showGuiOnLoadToggle = makeToggle(settingsTab.LeftCol, "Show GUI On Load")
 local closeOpenGuiKeybind = makeKeyBindButton(settingsTab.LeftCol, "Close/Open GUI", Enum.KeyCode.Insert)
 local autoScaleUIToggle = makeToggle(settingsTab.LeftCol, "Auto-Scale UI")
 local warnIfUnsupportedGameToggle = makeToggle(settingsTab.RightCol, "Warn when executing")
+local showNotificationsToggle = makeToggle(settingsTab.RightCol, "Enable Notifications")
 
 
 -- ** Save Settings to Config **
 BindToggleToConfig(showGuiOnLoadToggle, "settings.showGuiOnLoad", true)
 BindToggleToConfig(autoScaleUIToggle, "settings.autoScaleUI", false)
 BindToggleToConfig(warnIfUnsupportedGameToggle, "settings.warnIfUnsupportedGame", true)
+BindToggleToConfig(showNotificationsToggle, "settings.enableNotifications", true)
 
 
 ---------------------------------------------------------------------------
@@ -1872,7 +1869,6 @@ BindToggleToConfig(warnIfUnsupportedGameToggle, "settings.warnIfUnsupportedGame"
 local aimbotToggle = makeToggle(combatTab.LeftCol, "Aimbot")
 local enableAimbotKeybind = makeKeyBindButton(combatTab.LeftCol, "Enable Aimbot", Enum.KeyCode.V)
 
--- initialize slider defaults from config so UI reflects saved values
 local initialSmoothing = GetConfig("combat.aimbotSmoothing", 1) or 1
 local initialAimbotFOV = GetConfig("combat.aimbotFOV", 700) or 700
 
@@ -1913,7 +1909,44 @@ _G.RivalsCHTUI = {
         Save = SaveConfig,
         BindToggle = BindToggleToConfig,
     },
+    Notification = nil, 
 }
+
+--  ** Notification API
+NotificationAPI = {
+    _permissions = {}, 
+    Filter = function(inv) return GetConfig("settings.enableNotifications", true) end,
+}
+
+function NotificationAPI.CanCreate(invoker)
+    if invoker == nil then
+        if type(NotificationAPI.Filter) == "function" then
+            local res = NotificationAPI.Filter(invoker)
+            if res ~= nil then return not not res end
+        end
+        return true
+    end
+    local key = tostring(invoker)
+    if NotificationAPI._permissions[key] ~= nil then
+        return not not NotificationAPI._permissions[key]
+    end
+    if type(NotificationAPI.Filter) == "function" then
+        local res = NotificationAPI.Filter(invoker)
+        if res ~= nil then return not not res end
+    end
+    return true
+end
+
+function NotificationAPI.SetPermission(invokerKey, allowed)
+    NotificationAPI._permissions[tostring(invokerKey)] = not not allowed
+end
+
+function NotificationAPI.RegisterFilter(fn)
+    if type(fn) == "function" then NotificationAPI.Filter = fn end
+end
+
+pcall(function() _G.RivalsCHTUI.Notification = NotificationAPI end)
+pcall(function() _G.RivalsCHT_Notification = NotificationAPI end)
 
 -------------- Break --------------------
 
@@ -1955,6 +1988,19 @@ end
 
 _G.RivalsCHTUI.RegisterUnload = RegisterUnload
 _G.RivalsCHTUI.RunUnload = RunUnload
+
+--------------------------------------------------------------------------
+
+-- ** Weapon ID's List -- **
+
+-- ** Weapon Definitions -- **
+local WeaponDefs = {
+    Katana = {
+        "katana"
+    },
+}
+
+
 
 
 --------------------------------------------------------------------------
@@ -2918,6 +2964,15 @@ do
     local teamCheckEnabled = GetConfig("combat.teamCheck", true) or true
     local teammateCache = {}
 
+    local t = ToggleAPI[aimbotToggle]
+    if t then
+        local p = t.OnToggle
+        t.OnToggle = function(s)
+            if type(p) == "function" then p(s) end
+            makeNotification(s and "Aimbot is ON" or "Aimbot is OFF", 3, nil, "AimbotToggle")
+        end
+    end
+
     -- ** Team check api ** --
     _G.RivalsCHT_TeamCheck = _G.RivalsCHT_TeamCheck or {}
     do
@@ -3408,8 +3463,7 @@ do
     local labels = {}
     local lastUpdate = 0
     local updateInterval = 0.2
-    
-    -- compact, themed container using Screen GUI color palette
+
     local labelContainer = Instance.new("Frame")
     labelContainer.Name = "EnemyWeaponLabels"
     labelContainer.Size = UDim2.new(0, 200, 0, 140)
@@ -3502,7 +3556,6 @@ do
                     continue
                 end
 
-                -- skip teammates when displaying enemy weapons
                 local isTeammate = false
                 if _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
                     pcall(function() isTeammate = _G.RivalsCHT_TeamCheck.IsTeammate(player) end)
