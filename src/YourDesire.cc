@@ -2050,6 +2050,23 @@ do
 
     local function addChamsToPlayer(p)
         if not p or p == Players.LocalPlayer then return end
+        local _did_skip = false
+        pcall(function()
+            local teamEnabled = false
+            local ok, tApi = pcall(function() return ToggleAPI[teamCheckToggle] end)
+            if ok and tApi and type(tApi.Get) == "function" then
+                teamEnabled = not not tApi.Get()
+            else
+                teamEnabled = not not GetConfig("combat.teamCheck", true)
+            end
+            if teamEnabled and _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                local ok2, isTeam = pcall(function() return _G.RivalsCHT_TeamCheck.IsTeammate(p) end)
+                if ok2 and isTeam then
+                    _did_skip = true
+                end
+            end
+        end)
+        if _did_skip then return end
         removeChamsFromPlayer(p)
         local char = p.Character
         if char then
@@ -2243,6 +2260,26 @@ do
 
             for _, p in ipairs(Players:GetPlayers()) do
                 if p == localPlayer then continue end
+                local _skip = false
+                pcall(function()
+                    local teamEnabled = false
+                    local ok, tApi = pcall(function() return ToggleAPI[teamCheckToggle] end)
+                    if ok and tApi and type(tApi.Get) == "function" then
+                        teamEnabled = not not tApi.Get()
+                    else
+                        teamEnabled = not not GetConfig("combat.teamCheck", true)
+                    end
+                    if teamEnabled and _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                        local ok2, isTeam = pcall(function() return _G.RivalsCHT_TeamCheck.IsTeammate(p) end)
+                        if ok2 and isTeam then
+                            _skip = true
+                        end
+                    end
+                end)
+                if _skip then
+                    removeBoxForPlayer(p)
+                    continue
+                end
                 local ch = p and p.Character
                 if not ch or not ch.Parent then
                     removeBoxForPlayer(p)
