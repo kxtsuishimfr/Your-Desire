@@ -1879,6 +1879,7 @@ local drawFovCircleToggle = makeToggle(combatTab.LeftCol, "Draw FOV Circle")
 local targetBehindWallsToggle = makeToggle(combatTab.LeftCol, "Target Behind Walls")
 local aimLockKeybind = makeKeyBindButton(combatTab.RightCol, "Aim Lock Keybind", Enum.KeyCode.Q)
 local teamCheckToggle = makeToggle(combatTab.LeftCol, "Team Check")
+local sixthSenseToggle = makeToggle(combatTab.RightCol, "Sixth Sense")
 
 
 
@@ -1888,6 +1889,7 @@ BindToggleToConfig(useAimbotSmoothingToggle, "combat.useAimbotSmoothing", false)
 BindToggleToConfig(drawFovCircleToggle, "combat.drawFovCircle", false)
 BindToggleToConfig(targetBehindWallsToggle, "combat.targetBehindWalls", false)
 BindToggleToConfig(teamCheckToggle, "combat.teamCheck", true)
+BindToggleToConfig(sixthSenseToggle, "combat.sixthSense", false)
 
 
 ---------------------------------------------------------------------------
@@ -1995,9 +1997,42 @@ _G.RivalsCHTUI.RunUnload = RunUnload
 
 -- ** Weapon Definitions -- **
 local WeaponDefs = {
-    Katana = {
-        "katana"
+    -- ** Primary Weapons ** --
+
+    -- ** Assault Rifle ** --
+    Assault_Rifle = {
+        "AKEY-47",
+        "AUG",
+        "Gingerbread AUG",
+        "Tommy Gun",
+        "AK-47",
+        "Boneclaw Rifle",
+        "Glorious Assault Rifle",
+        "Phoenix Rifle",
+        "10B Visits"
     },
+
+    -- ** Bow ** --
+    Bow = {
+        "Key Bow",
+        "Bat Bow",
+        "Dream Bow",
+        "Frostbite Bow",
+        "Raven Bow",
+        "Compound Bow",
+        "Glorious Bow"
+    },
+
+    -- ** Utility Weapons ** --
+
+    Subspace_Tripmine = {
+        "Don't Press",
+        "Dev-In-The-Box",
+        "Spring",
+        "Trick Or Treat",
+        "DIY Tripmine",
+        "Glorious Subspace Tripmine"
+    }
 }
 
 
@@ -3546,6 +3581,25 @@ do
         end
         return modelName
     end
+
+    local function normalizeWeaponName(rawName)
+        if not rawName or type(rawName) ~= "string" then return rawName end
+        local lname = string.lower(rawName)
+        for norm, list in pairs(WeaponDefs or {}) do
+            if type(list) == "table" then
+                for _, alias in ipairs(list) do
+                    if type(alias) == "string" and string.lower(alias) == lname then
+                        return string.gsub(norm, "_", " ")
+                    end
+                end
+            end
+        end
+        local key = string.gsub(rawName, " ", "_")
+        if WeaponDefs and WeaponDefs[key] then
+            return string.gsub(key, "_", " ")
+        end
+        return rawName
+    end
     
     local function extractPlayerName(modelName)
         local parts = string.split(modelName, " - ")
@@ -3619,14 +3673,15 @@ do
                     continue
                 end
                 
-                activePlayers[playerName] = weaponName
+                local displayName = normalizeWeaponName(weaponName)
+                activePlayers[playerName] = displayName
                 
                 if not labels[playerName] then
                     labels[playerName] = createWeaponLabel(playerName)
                 end
                 
                 local label = labels[playerName]
-                label.Text = playerName .. " | " .. weaponName
+                label.Text = playerName .. " | " .. displayName
                 label.Visible = true
             end
         end
@@ -3687,9 +3742,330 @@ do
             onToggleChanged(state)
         end
     end
+
+    local function GetEnemyHeldWeapon(playerOrName)
+        local target = playerOrName
+        if type(target) == "string" then target = Players:FindFirstChild(target) end
+        if not target or target == LocalPlayer then return nil end
+        for _, vm in ipairs(ViewModels:GetChildren()) do
+            if vm:IsA("Model") then
+                local pn = extractPlayerName(vm.Name)
+                if pn == target.Name then
+                    local raw = extractWeaponName(vm.Name)
+                    local norm = normalizeWeaponName(raw)
+                    return norm, raw, vm
+                end
+            end
+        end
+        return nil
+    end
+
+    local function GetAllEnemyHeldWeapons()
+        local out = {}
+        for _, vm in ipairs(ViewModels:GetChildren()) do
+            if vm:IsA("Model") then
+                local pn = extractPlayerName(vm.Name)
+                local raw = extractWeaponName(vm.Name)
+                out[pn] = { Normalized = normalizeWeaponName(raw), Raw = raw }
+            end
+        end
+        return out
+    end
+
+    pcall(function()
+        if type(_G) == "table" and _G.RivalsCHTUI then
+            _G.RivalsCHTUI.ShowEnemyWeapons = _G.RivalsCHTUI.ShowEnemyWeapons or {}
+            _G.RivalsCHTUI.ShowEnemyWeapons.GetEnemyHeldWeapon = GetEnemyHeldWeapon
+            _G.RivalsCHTUI.ShowEnemyWeapons.GetAllEnemyHeldWeapons = GetAllEnemyHeldWeapons
+        end
+    end)
 end
 
 -- ** Show Enemy Weapons Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Sixth Sense Logic Starts Here ** --
+
+-- ** Subspace Tripmine Detection
+
+do
+    local labels = {}
+    local labelCount = 0
+    local childAddedConn, childRemovedConn, renderConn
+    local displayName = ("Subspace_Tripmine"):gsub("_"," ")
+    local MAX_LABELS = 50
+    local MAX_DIST = 300
+
+    local function isTripminePart(part)
+        if not part or not part:IsA("BasePart") then return false end
+        local vm = Workspace:FindFirstChild("ViewModels")
+        if vm and part:IsDescendantOf(vm) then return false end
+        local cam = Workspace.CurrentCamera
+        if cam and part:IsDescendantOf(cam) then return false end
+        local name = string.lower(part.Name or "")
+        if string.find(name, "tripmine") then return true end
+        local anc = part:FindFirstAncestorOfClass("Model")
+        if anc and string.find(string.lower(anc.Name or ""), "tripmine") then return true end
+        return false
+    end
+
+    local function makeLabel(part)
+        if labels[part] then return end
+        if labelCount >= MAX_LABELS then return end
+        if localPlayer and localPlayer.Character and part:IsDescendantOf(localPlayer.Character) then return end
+        local cam = Workspace.CurrentCamera
+        if cam and (part.Position - cam.CFrame.Position).Magnitude > MAX_DIST then return end
+
+        local txt = Drawing.new("Text")
+        part:SetAttribute("Rivals_Trap", true)
+        part:SetAttribute("Rivals_TrapName", displayName)
+        txt.Text = displayName
+        txt.Size = 18
+        txt.Color = (COLORS and COLORS.accent) or Color3.fromRGB(255,120,120)
+        txt.Center = true
+        txt.Outline = true
+        txt.Visible = false
+        labels[part] = txt
+        labelCount = labelCount + 1
+    end
+
+    local function removeLabel(part)
+        local d = labels[part]
+        if not d then return end
+        if d.Remove then d:Remove() end
+        labels[part] = nil
+        labelCount = labelCount - 1
+        if part.SetAttribute then
+            part:SetAttribute("Rivals_Trap", nil)
+            part:SetAttribute("Rivals_TrapName", nil)
+        end
+    end
+
+    local function scanAndCreate()
+        local cam = Workspace.CurrentCamera
+        local camPos = cam and cam.CFrame.Position or nil
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if labelCount >= MAX_LABELS then break end
+            if obj:IsA("BasePart") and isTripminePart(obj) then
+                if not (camPos and (obj.Position - camPos).Magnitude > MAX_DIST) then
+                    makeLabel(obj)
+                end
+            end
+        end
+    end
+
+    local function onDescendantAdded(desc)
+        local cam = Workspace.CurrentCamera
+        local camPos = cam and cam.CFrame.Position or nil
+        if desc:IsA("BasePart") then
+            if isTripminePart(desc) and not (camPos and (desc.Position - camPos).Magnitude > MAX_DIST) then makeLabel(desc) end
+        else
+            for _, d in ipairs(desc:GetDescendants()) do
+                if labelCount >= MAX_LABELS then break end
+                if d:IsA("BasePart") and isTripminePart(d) and not (camPos and (d.Position - camPos).Magnitude > MAX_DIST) then
+                    makeLabel(d)
+                end
+            end
+        end
+    end
+
+    local function onDescendantRemoving(desc)
+        if desc:IsA("BasePart") then
+            removeLabel(desc)
+        else
+            for _, d in ipairs(desc:GetDescendants()) do
+                if d:IsA("BasePart") then removeLabel(d) end
+            end
+        end
+    end
+
+    local function enable()
+        if renderConn then return end
+        scanAndCreate()
+        childAddedConn = Workspace.DescendantAdded:Connect(onDescendantAdded)
+        if Workspace.DescendantRemoving then childRemovedConn = Workspace.DescendantRemoving:Connect(onDescendantRemoving) end
+        renderConn = RunService.RenderStepped:Connect(function()
+            local cam = Workspace.CurrentCamera
+            if not cam then
+                for _, d in pairs(labels) do d.Visible = false end
+                return
+            end
+            local camPos = cam.CFrame.Position
+            for part, draw in pairs(labels) do
+                if not part or not part.Parent then
+                    removeLabel(part)
+                else
+                    local p, onScreen = cam:WorldToViewportPoint(part.Position)
+                    if not onScreen or p.Z <= 0 or (part.Position - camPos).Magnitude > MAX_DIST then
+                        draw.Visible = false
+                    else
+                        local dist = (part.Position - camPos).Magnitude
+                        local ratio = math.clamp(50 / math.max(dist, 1), 0.125, 1)
+                        draw.Size = math.floor(math.clamp(math.floor(32 * ratio), 12, 32))
+                        draw.Position = Vector2.new(p.X, p.Y)
+                        draw.Visible = true
+                    end
+                end
+            end
+        end)
+    end
+
+    local function disable()
+        if renderConn then renderConn:Disconnect() renderConn = nil end
+        if childAddedConn then childAddedConn:Disconnect() childAddedConn = nil end
+        if childRemovedConn then childRemovedConn:Disconnect() childRemovedConn = nil end
+        for p, _ in pairs(labels) do removeLabel(p) end
+        labels = {}
+        labelCount = 0
+    end
+
+    if GetConfig("combat.sixthSense", false) then enable() end
+
+    local api = ToggleAPI and ToggleAPI[sixthSenseToggle]
+    if api then
+        local prev = api.OnToggle
+        api.OnToggle = function(state)
+            if prev then prev(state) end
+            if state then enable() else disable() end
+        end
+        api.Set(GetConfig("combat.sixthSense", false))
+    end
+
+    if type(_G) == "table" and _G.RivalsCHTUI and type(_G.RivalsCHTUI.RegisterUnload) == "function" then
+        _G.RivalsCHTUI.RegisterUnload(disable)
+    else
+        RegisterUnload(disable)
+    end
+end
+
+-- ** Katana Detection
+
+do
+    local api = (_G and _G.RivalsCHTUI and _G.RivalsCHTUI.ShowEnemyWeapons) or nil
+    local katanaDraw = nil
+    local katanaConn = nil
+    local katanaExpiry = 0
+    local KATANA_DIST = 150
+    local KATANA_TIME = 1.4
+
+    local function removeKatanaDraw()
+        if katanaDraw and katanaDraw.Remove then
+            pcall(function() katanaDraw:Remove() end)
+        end
+        katanaDraw = nil
+    end
+
+    local function showKatanaMessage()
+        if typeof(Drawing) ~= "table" or not Drawing.new then return end
+        if not katanaDraw then
+            katanaDraw = Drawing.new("Text")
+            katanaDraw.Text = "Enemy is holding Katana!"
+            katanaDraw.Color = (COLORS and COLORS.accent) or Color3.fromRGB(255,80,80)
+            katanaDraw.Size = 25
+            katanaDraw.Center = true
+            katanaDraw.Outline = true
+            local cam = Workspace.CurrentCamera
+            if cam then
+                local vs = cam.ViewportSize
+                katanaDraw.Position = Vector2.new(vs.X * 0.5, 48)
+            else
+                katanaDraw.Position = Vector2.new(400, 48)
+            end
+        end
+        katanaDraw.Visible = true
+        katanaExpiry = tick() + KATANA_TIME
+    end
+
+    local function checkAndHideKatana()
+        if katanaDraw and tick() > katanaExpiry then
+            pcall(function() katanaDraw.Visible = false end)
+        end
+    end
+
+    local function detectKatana()
+        if not GetConfig("combat.sixthSense", false) then
+            if katanaDraw then pcall(function() katanaDraw.Visible = false end) end
+            return
+        end
+
+        local lp = Players.LocalPlayer
+        local lpchar = lp and lp.Character
+        local lpRoot = lpchar and (lpchar.PrimaryPart or lpchar:FindFirstChild("HumanoidRootPart"))
+        if not lpRoot then
+            checkAndHideKatana()
+            return
+        end
+
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if pl ~= lp then
+                local isTeam = false
+                if _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                    pcall(function() isTeam = _G.RivalsCHT_TeamCheck.IsTeammate(pl) end)
+                end
+                if isTeam then continue end
+
+                local norm, raw, vm
+                if api and type(api.GetEnemyHeldWeapon) == "function" then
+                    norm, raw, vm = api.GetEnemyHeldWeapon(pl)
+                else
+                    for _, m in ipairs((workspace:FindFirstChild("ViewModels") or {}):GetChildren()) do
+                        if m:IsA("Model") then
+                            local pn = string.split(m.Name, " - ")[1]
+                            if pn == pl.Name then
+                                raw = (function()
+                                    local parts = string.split(m.Name, " - ")
+                                    if #parts >= 3 then return parts[3] elseif #parts >= 2 then return parts[2] end
+                                    return m.Name
+                                end)()
+                                norm = raw
+                                vm = m
+                                break
+                            end
+                        end
+                    end
+                end
+
+                if raw and (string.find(string.lower(raw), "katana") or (norm and string.find(string.lower(tostring(norm)), "katana"))) then
+                    local ch = pl.Character
+                    if ch and ch.Parent then
+                        local hrp = ch.PrimaryPart or ch:FindFirstChild("HumanoidRootPart")
+                        if hrp and (lpRoot.Position - hrp.Position).Magnitude <= KATANA_DIST then
+                            local dir = (lpRoot.Position - hrp.Position)
+                            if dir.Magnitude > 0 then
+                                local dirUnit = dir.Unit
+                                local forward = hrp.CFrame.LookVector
+                                local dot = forward:Dot(dirUnit)
+                                if dot >= 0.3 then
+                                    showKatanaMessage()
+                                    return
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        checkAndHideKatana()
+    end
+
+    katanaConn = RunService.Heartbeat:Connect(detectKatana)
+
+    local function cleanupKatana()
+        if katanaConn and katanaConn.Disconnect then pcall(function() katanaConn:Disconnect() end) end
+        removeKatanaDraw()
+    end
+
+    if type(_G) == "table" and _G.RivalsCHTUI and type(_G.RivalsCHTUI.RegisterUnload) == "function" then
+        _G.RivalsCHTUI.RegisterUnload(cleanupKatana)
+    else
+        RegisterUnload(cleanupKatana)
+    end
+end
+
+
+-- ** Sixth Sense Logic Ends Here ** --
 
 ---------------------------------------------------------------------------
 
