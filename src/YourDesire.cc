@@ -51,6 +51,326 @@ local COLORS = {
     closeHover = Color3.fromRGB(255,120,150), 
 }
 
+
+-------------------------------------------------------
+
+-- ** Theme System ** --
+
+local function shallowCopy(t)
+    local o = {}
+    for k,v in pairs(t) do o[k] = v end
+    return o
+end
+
+local LAST_THEME = nil
+
+local THEMES = {
+    ["Your Desire"] = shallowCopy(COLORS),
+    ["Gilded Crown"] = {
+        bg = Color3.fromRGB(18,16,20), panel = Color3.fromRGB(34,28,24), panelAlt = Color3.fromRGB(46,40,36),
+        panelDark = Color3.fromRGB(14,12,10), divider = Color3.fromRGB(120,90,50), accent = Color3.fromRGB(220,180,80),
+        accentHover = Color3.fromRGB(240,200,120), text = Color3.fromRGB(250,245,235), textDim = Color3.fromRGB(190,170,150),
+        tabText = Color3.fromRGB(230,210,190), highlight = Color3.fromRGB(100,90,70), white = Color3.fromRGB(255,255,255),
+        close = Color3.fromRGB(255,220,200), closeHover = Color3.fromRGB(255,160,120),
+    },
+    ["Blue Hour"] = {
+        bg = Color3.fromRGB(12,18,30), panel = Color3.fromRGB(20,28,42), panelAlt = Color3.fromRGB(28,36,52),
+        panelDark = Color3.fromRGB(8,10,16), divider = Color3.fromRGB(60,80,110), accent = Color3.fromRGB(80,160,220),
+        accentHover = Color3.fromRGB(110,190,240), text = Color3.fromRGB(235,245,255), textDim = Color3.fromRGB(170,190,210),
+        tabText = Color3.fromRGB(200,220,240), highlight = Color3.fromRGB(40,60,80), white = Color3.fromRGB(255,255,255),
+        close = Color3.fromRGB(255,200,200), closeHover = Color3.fromRGB(255,120,150),
+    },
+    ["Verdant Pulse"] = {
+        bg = Color3.fromRGB(14,28,20), panel = Color3.fromRGB(24,44,34), panelAlt = Color3.fromRGB(32,56,42),
+        panelDark = Color3.fromRGB(10,18,12), divider = Color3.fromRGB(50,100,70), accent = Color3.fromRGB(80,200,120),
+        accentHover = Color3.fromRGB(110,230,150), text = Color3.fromRGB(235,250,240), textDim = Color3.fromRGB(170,200,180),
+        tabText = Color3.fromRGB(200,230,210), highlight = Color3.fromRGB(40,70,50), white = Color3.fromRGB(255,255,255),
+        close = Color3.fromRGB(255,200,200), closeHover = Color3.fromRGB(255,120,150),
+    },
+}
+
+
+-- ** Apply Theme ** --
+
+local function ApplyTheme(name)
+    local prev = shallowCopy(COLORS)
+    LAST_THEME = prev
+    local theme = (type(name) == "string" and THEMES[name]) and THEMES[name] or THEMES["Your Desire"]
+    COLORS = shallowCopy(theme)
+
+    local map = {}
+    for k,v in pairs(prev) do if COLORS[k] then map[v] = COLORS[k] end end
+
+    local function safeLerp(a,b,t)
+        if typeof(a) ~= "Color3" or typeof(b) ~= "Color3" then return nil end
+        return a:Lerp(b, t)
+    end
+    pcall(function()
+        local pv, nv = prev, COLORS
+        local a1 = safeLerp(pv.panel or pv.bg, pv.text, 0.18)
+        local b1 = safeLerp(nv.panel or nv.bg, nv.text, 0.18)
+        if a1 and b1 then map[a1] = b1 end
+        local a2 = safeLerp(pv.accent or pv.text, pv.white or Color3.new(1,1,1), 0.18)
+        local b2 = safeLerp(nv.accent or nv.text, nv.white or Color3.new(1,1,1), 0.18)
+        if a2 and b2 then map[a2] = b2 end
+        local a3 = safeLerp(pv.panel or pv.bg, pv.text, 0.14)
+        local b3 = safeLerp(nv.panel or nv.bg, nv.text, 0.14)
+        if a3 and b3 then map[a3] = b3 end
+        for i=1,3 do
+            local oldSurf = (pv.bg or pv.panel or pv.panelAlt)
+            local newSurf = (nv.bg or nv.panel or nv.panelAlt)
+            if oldSurf and newSurf and a2 and b2 then
+                local oldT = safeLerp(oldSurf, a2, 0.06)
+                local newT = safeLerp(newSurf, b2, 0.06)
+                if oldT and newT then map[oldT] = newT end
+            end
+        end
+    end)
+
+    local function colorDist(a,b)
+        local dr = a.r - b.r
+        local dg = a.g - b.g
+        local db = a.b - b.b
+        return dr*dr + dg*dg + db*db
+    end
+
+    local function findMapped(col)
+        if not col or typeof(col) ~= "Color3" then return nil end
+        for old,new in pairs(map) do if old == col then return new end end
+        local best, bestd = nil, 1e9
+        for old,new in pairs(map) do
+            local d = colorDist(old, col)
+            if d < bestd then bestd = d; best = new end
+        end
+        if best and bestd < 0.006 then 
+            return best
+        end
+        return nil
+    end
+
+    if gui and gui.Parent then
+        pcall(function()
+            for _,obj in ipairs(gui:GetDescendants()) do
+                if obj:IsA("GuiObject") then
+                    pcall(function()
+                        local ok, bg = pcall(function() return obj.BackgroundColor3 end)
+                        if ok and typeof(bg) == "Color3" then
+                            local m = findMapped(bg)
+                            if m then obj.BackgroundColor3 = m end
+                        end
+                    end)
+                    pcall(function()
+                        local ok2, tx = pcall(function() return obj.TextColor3 end)
+                        if ok2 and typeof(tx) == "Color3" then
+                            local m2 = findMapped(tx)
+                            if m2 then obj.TextColor3 = m2 end
+                        end
+                    end)
+                end
+                if obj:IsA("UIStroke") then
+                    pcall(function()
+                        local ok3, c = pcall(function() return obj.Color end)
+                        if ok3 and typeof(c) == "Color3" then
+                            local m3 = findMapped(c)
+                            if m3 then obj.Color = m3 end
+                        end
+                    end)
+                end
+            end
+            if root and root:IsA("GuiObject") then root.BackgroundColor3 = COLORS.bg end
+            if tabsUnderlay and tabsUnderlay:IsA("GuiObject") then tabsUnderlay.BackgroundColor3 = COLORS.panel end
+            if tabsBar and tabsBar:IsA("GuiObject") then
+                for _,c in ipairs(tabsBar:GetChildren()) do
+                    if c:IsA("TextButton") then c.BackgroundColor3 = COLORS.bg; c.TextColor3 = COLORS.tabText end
+                end
+            end
+            if closeBtn and closeBtn:IsA("GuiObject") then closeBtn.TextColor3 = COLORS.close end
+        end)
+    end
+
+    pcall(function()
+        for k,api in pairs(ToggleAPI) do
+            if type(api) == "table" and type(api.Get) == "function" and type(api.Set) == "function" then
+                local prevOn = api.OnToggle
+                api.OnToggle = nil
+                pcall(api.Set, api.Get())
+                api.OnToggle = prevOn
+            end
+        end
+        for k,api in pairs(SliderAPI) do
+            if type(api) == "table" and type(api.Get) == "function" and type(api.Set) == "function" then
+                local prevOn = api.OnChange
+                api.OnChange = nil
+                pcall(api.Set, api.Get())
+                api.OnChange = prevOn
+            end
+        end
+        for k,api in pairs(ColorPickerAPI) do
+            if type(api) == "table" and type(api.Get) == "function" and type(api.Set) == "function" then
+                local prevOn = api.OnChange
+                api.OnChange = nil
+                pcall(api.Set, api.Get())
+                api.OnChange = prevOn
+            end
+        end
+        for k,api in pairs(DropdownAPI) do
+            if type(api) == "table" and type(api.Get) == "function" and type(api.Set) == "function" then
+                local sel = api.Get()
+                if type(sel) == "table" and sel.index then pcall(api.Set, sel.index) end
+            end
+        end
+    end)
+end
+
+-- ** Themed Registry ** --
+
+local THEME_REGISTRY = {}
+
+local function snapshotColors(obj)
+    local t = {}
+    pcall(function()
+        if obj:IsA("GuiObject") then
+            if obj.BackgroundColor3 ~= nil then t.bg = obj.BackgroundColor3 end
+            if obj.TextColor3 ~= nil then t.text = obj.TextColor3 end
+        end
+        for _,c in ipairs(obj:GetChildren()) do
+            if c:IsA("UIStroke") then
+                t.stroke = t.stroke or {}
+                table.insert(t.stroke, c.Color)
+            end
+        end
+    end)
+    return t
+end
+
+local function RegisterThemed(obj, refreshFn)
+    if not obj or typeof(obj) ~= "Instance" then return end
+    local entry = { obj = obj, snapshot = snapshotColors(obj), refresh = (type(refreshFn) == "function") and refreshFn or nil }
+    table.insert(THEME_REGISTRY, entry)
+    return entry
+end
+
+local function RefreshRegisteredThemed()
+    if #THEME_REGISTRY == 0 then return end
+    pcall(function()
+        local prev = LAST_THEME or {}
+        local cur = COLORS or {}
+        local map = {}
+        for k,v in pairs(prev) do if cur[k] then map[v] = cur[k] end end
+
+        local function safeLerp(a,b,t)
+            if typeof(a) ~= "Color3" or typeof(b) ~= "Color3" then return nil end
+            return a:Lerp(b, t)
+        end
+        pcall(function()
+            local a1 = safeLerp(prev.panel or prev.bg, prev.text, 0.18)
+            local b1 = safeLerp(cur.panel or cur.bg, cur.text, 0.18)
+            if a1 and b1 then map[a1] = b1 end
+            local a2 = safeLerp(prev.accent or prev.text, prev.white or Color3.new(1,1,1), 0.18)
+            local b2 = safeLerp(cur.accent or cur.text, cur.white or Color3.new(1,1,1), 0.18)
+            if a2 and b2 then map[a2] = b2 end
+            local a3 = safeLerp(prev.panel or prev.bg, prev.text, 0.14)
+            local b3 = safeLerp(cur.panel or cur.bg, cur.text, 0.14)
+            if a3 and b3 then map[a3] = b3 end
+            for i=1,3 do
+                local oldSurf = (prev.bg or prev.panel or prev.panelAlt)
+                local newSurf = (cur.bg or cur.panel or cur.panelAlt)
+                if oldSurf and newSurf and a2 and b2 then
+                    local oldT = safeLerp(oldSurf, a2, 0.06)
+                    local newT = safeLerp(newSurf, b2, 0.06)
+                    if oldT and newT then map[oldT] = newT end
+                end
+            end
+        end)
+
+        local function colorDist(a,b)
+            local dr = a.r - b.r
+            local dg = a.g - b.g
+            local db = a.b - b.b
+            return dr*dr + dg*dg + db*db
+        end
+
+        local function findMapped(col)
+            if not col or typeof(col) ~= "Color3" then return nil end
+            for old,new in pairs(map) do if old == col then return new end end
+            local best, bestd = nil, 1e9
+            for old,new in pairs(map) do
+                local d = colorDist(old, col)
+                if d < bestd then bestd = d; best = new end
+            end
+            if best and bestd < 0.006 then return best end
+            local nearest, nd = nil, 1e9
+            for k,v in pairs(cur) do
+                local d = colorDist(v, col)
+                if d < nd then nd = d; nearest = v end
+            end
+            if nearest then return nearest end
+            return nil
+        end
+
+        for _,e in ipairs(THEME_REGISTRY) do
+            local o = e.obj
+            local s = e.snapshot
+            if o and o.Parent then
+                pcall(function()
+                    if s.bg and pcall(function() return o.BackgroundColor3 end) then
+                        local m = findMapped(s.bg)
+                        if m then o.BackgroundColor3 = m end
+                    end
+                    if s.text and pcall(function() return o.TextColor3 end) then
+                        local m = findMapped(s.text)
+                        if m then o.TextColor3 = m end
+                    end
+                    if pcall(function() return o.ImageColor3 end) then
+                        local ok, curVal = pcall(function() return o.ImageColor3 end)
+                        if ok and typeof(curVal) == "Color3" then
+                            local m = findMapped(curVal)
+                            if m then o.ImageColor3 = m end
+                        end
+                    end
+                    if pcall(function() return o.BorderColor3 end) then
+                        local ok2, curVal2 = pcall(function() return o.BorderColor3 end)
+                        if ok2 and typeof(curVal2) == "Color3" then
+                            local m2 = findMapped(curVal2)
+                            if m2 then o.BorderColor3 = m2 end
+                        end
+                    end
+                end)
+
+                if s.stroke and #s.stroke > 0 then
+                    local strokes = {}
+                    for _,c in ipairs(o:GetChildren()) do if c:IsA("UIStroke") then table.insert(strokes, c) end end
+                    for i,old in ipairs(s.stroke) do
+                        local target = strokes[i]
+                        if target and typeof(old) == "Color3" then
+                            local m = findMapped(old)
+                            if m then pcall(function() target.Color = m end) end
+                        end
+                    end
+                end
+                -- call custom refresh function if provided
+                if type(e.refresh) == "function" then
+                    pcall(e.refresh)
+                end
+            end
+        end
+    end)
+end
+
+do
+    local _orig = ApplyTheme
+    ApplyTheme = function(name)
+        _orig(name)
+        pcall(RefreshRegisteredThemed)
+        pcall(function()
+            for k,api in pairs(ToggleAPI) do if type(api) == "table" and api.Set and api.Get then local on = api.OnToggle; api.OnToggle = nil; pcall(api.Set, api.Get()); api.OnToggle = on end end
+            for k,api in pairs(SliderAPI) do if type(api) == "table" and api.Set and api.Get then local on = api.OnChange; api.OnChange = nil; pcall(api.Set, api.Get()); api.OnChange = on end end
+            for k,api in pairs(ColorPickerAPI) do if type(api) == "table" and api.Set and api.Get then local on = api.OnChange; api.OnChange = nil; pcall(api.Set, api.Get()); api.OnChange = on end end
+        end)
+    end
+end
+
+
 -----------------------------------------------------------------------------
 local player = Players.LocalPlayer
 local FIRST_TAB = nil -- ** select first tab
@@ -102,7 +422,30 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
     page.BackgroundTransparency = 1
 
     if tabsParent then btn.Parent = tabsParent end
+    RegisterThemed(btn, function()
+        pcall(function()
+            local ind = btn:FindFirstChild("ActiveIndicator")
+            local isActive = ind and ind.BackgroundTransparency == 0
+            if isActive then
+                btn.TextColor3 = COLORS.white
+                btn.BackgroundColor3 = COLORS.accent
+                if ind then ind.BackgroundColor3 = COLORS.accent end
+            else
+                btn.TextColor3 = COLORS.tabText
+                btn.BackgroundColor3 = COLORS.panel
+                if ind then ind.BackgroundColor3 = COLORS.accent end
+                if ind then ind.BackgroundTransparency = 1 end
+            end
+        end)
+    end)
     if pagesParent then page.Parent = pagesParent end
+    RegisterThemed(page, function()
+        pcall(function()
+            if page and page:IsA("GuiObject") then
+                page.BackgroundTransparency = 1
+            end
+        end)
+    end)
 
     if tabsParent then
         pcall(function()
@@ -146,6 +489,7 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
     leftCol.Position = UDim2.new(0, 8, 0, 8)
     leftCol.BackgroundColor3 = COLORS.panel
     leftCol.Parent = page
+    RegisterThemed(leftCol)
     leftCol.ClipsDescendants = true
     local list = Instance.new("UIListLayout") list.Parent = leftCol
     list.SortOrder = Enum.SortOrder.LayoutOrder
@@ -174,6 +518,7 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
     rightCol.Position = UDim2.new(0.5, 8, 0, 8)
     rightCol.BackgroundColor3 = COLORS.panel
     rightCol.Parent = page
+    RegisterThemed(rightCol)
     rightCol.ClipsDescendants = true
     local list2 = Instance.new("UIListLayout") list2.Parent = rightCol
     list2.SortOrder = Enum.SortOrder.LayoutOrder
@@ -201,6 +546,7 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
     divider.Position = UDim2.new(0.5, -1, 0, 8)
     divider.BackgroundColor3 = COLORS.divider
     divider.Parent = page
+    RegisterThemed(divider)
     local divCorner = Instance.new("UICorner") divCorner.CornerRadius = UDim.new(0,1) divCorner.Parent = divider
 
     local tab = {
@@ -263,6 +609,7 @@ local function makeToggle(parent, labelText)
     label.TextColor3 = COLORS.text
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = frame
+    RegisterThemed(label)
 
     local surfaceColor = COLORS.panel or COLORS.bg or COLORS.panelAlt
     local bgColor = COLORS.bg or COLORS.panel or surfaceColor
@@ -275,6 +622,7 @@ local function makeToggle(parent, labelText)
     toggle.BackgroundColor3 = surfaceColor
     toggle.ClipsDescendants = true
     toggle.Parent = frame
+    RegisterThemed(toggle)
 
     local toggleCorner = Instance.new("UICorner")
     toggleCorner.CornerRadius = UDim.new(0, 14)
@@ -293,6 +641,7 @@ local function makeToggle(parent, labelText)
     fill.BackgroundColor3 = accentVisible
     fill.BackgroundTransparency = 1
     fill.Parent = toggle
+    RegisterThemed(fill)
     local fillCorner = Instance.new("UICorner")
     fillCorner.CornerRadius = UDim.new(0, 14)
     fillCorner.Parent = fill
@@ -305,6 +654,7 @@ local function makeToggle(parent, labelText)
     knobShadow.BackgroundTransparency = 0.9
     knobShadow.ZIndex = 1
     knobShadow.Parent = toggle
+    RegisterThemed(knobShadow)
     local ksCorner = Instance.new("UICorner")
     ksCorner.CornerRadius = UDim.new(0, 13)
     ksCorner.Parent = knobShadow
@@ -316,6 +666,7 @@ local function makeToggle(parent, labelText)
     knob.BackgroundColor3 = COLORS.white or Color3.new(1,1,1)
     knob.ZIndex = 2
     knob.Parent = toggle
+    RegisterThemed(knob)
     local kCorner = Instance.new("UICorner")
     kCorner.CornerRadius = UDim.new(0, 11)
     kCorner.Parent = knob
@@ -334,9 +685,40 @@ local function makeToggle(parent, labelText)
     inner.BackgroundTransparency = 1
     inner.ZIndex = 3
     inner.Parent = knob
+    RegisterThemed(inner)
     local innerCorner = Instance.new("UICorner")
     innerCorner.CornerRadius = UDim.new(1, 0)
     innerCorner.Parent = inner
+
+    -- register the frame-level refresh AFTER children exist (so snapshot includes children and refresh sees variables)
+    RegisterThemed(frame, function()
+        pcall(function()
+            local api = ToggleAPI[frame]
+            local curState = api and api.Get and api.Get() or state
+            local surfaceColor = COLORS.panel or COLORS.bg or COLORS.panelAlt
+            local bgColor = COLORS.bg or COLORS.panel or surfaceColor
+            local lightStroke = (COLORS.panel or COLORS.bg):Lerp(COLORS.text, 0.18)
+            local accentVisible = (COLORS.accent or COLORS.text):Lerp(COLORS.white or Color3.new(1,1,1), 0.18)
+            -- update visuals
+            if label then label.TextColor3 = COLORS.text end
+            if fill then fill.BackgroundColor3 = accentVisible end
+            if kStroke then kStroke.Color = (COLORS.panel or COLORS.bg):Lerp(COLORS.text, 0.14) end
+            if knob then knob.BackgroundColor3 = COLORS.white or Color3.new(1,1,1) end
+            if knobShadow then knobShadow.BackgroundColor3 = (bgColor or surfaceColor):Lerp(COLORS.white or Color3.new(1,1,1), 0.9) end
+            if toggleStroke then toggleStroke.Color = curState and accentVisible or lightStroke end
+            if curState then
+                if fill then fill.Size = UDim2.new(1,0,1,0); fill.BackgroundTransparency = 0.45 end
+                if knob then knob.Position = UDim2.new(1, -30, 0.5, 0) end
+                if knobShadow then knobShadow.Position = UDim2.new(1, -34, 0.5, 0) end
+                if inner then inner.Size = UDim2.new(0,10,0,10); inner.BackgroundTransparency = 0 end
+            else
+                if fill then fill.Size = UDim2.new(0,0,1,0); fill.BackgroundTransparency = 1 end
+                if knob then knob.Position = UDim2.new(0,6,0.5,0) end
+                if knobShadow then knobShadow.Position = UDim2.new(0,4,0.5,0) end
+                if inner then inner.Size = UDim2.new(0,8,0,8); inner.BackgroundTransparency = 1 end
+            end
+        end)
+    end)
 
     local state = false
     local tweenInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -482,6 +864,7 @@ local function makeNotification(text, duration, parent, invoker)
     container.ZIndex = holder.ZIndex
     container.LayoutOrder = math.floor(tick() * 1000)
     container.Parent = holder
+    RegisterThemed(container)
     local cCorner = Instance.new("UICorner") cCorner.CornerRadius = UDim.new(0,10) cCorner.Parent = container
     local cStroke = Instance.new("UIStroke") cStroke.Color = COLORS.divider; cStroke.Thickness = 1; cStroke.Parent = container
 
@@ -494,6 +877,7 @@ local function makeNotification(text, duration, parent, invoker)
     accent.ZIndex = container.ZIndex + 2
     accent.Parent = container
     local aCorner = Instance.new("UICorner") aCorner.CornerRadius = UDim.new(0,4) aCorner.Parent = accent
+    RegisterThemed(accent)
 
     local inner = Instance.new("Frame")
     inner.Size = UDim2.new(1, -20, 1, -12)
@@ -683,6 +1067,7 @@ local function makeSlider(parent, labelText, minVal, maxVal, defaultVal)
     frame.Size = UDim2.new(1, 0, 0, 34)
     frame.BackgroundTransparency = 1
     frame.Parent = parent
+    RegisterThemed(frame)
 
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0.4, -6, 1, 0)
@@ -708,6 +1093,7 @@ local function makeSlider(parent, labelText, minVal, maxVal, defaultVal)
     bar.BackgroundColor3 = COLORS.panelDark
     bar.BorderSizePixel = 0
     bar.Parent = holder
+    RegisterThemed(bar)
     local barCorner = Instance.new("UICorner") barCorner.CornerRadius = UDim.new(0,6) barCorner.Parent = bar
 
     local fill = Instance.new("Frame")
@@ -716,6 +1102,7 @@ local function makeSlider(parent, labelText, minVal, maxVal, defaultVal)
     fill.BackgroundColor3 = COLORS.accent
     fill.BorderSizePixel = 0
     fill.Parent = bar
+    RegisterThemed(fill)
     local fillCorner = Instance.new("UICorner") fillCorner.CornerRadius = UDim.new(0,6) fillCorner.Parent = fill
 
     local handle = Instance.new("TextButton")
@@ -727,6 +1114,7 @@ local function makeSlider(parent, labelText, minVal, maxVal, defaultVal)
     handle.BackgroundColor3 = COLORS.panel
     handle.Text = ""
     handle.Parent = bar
+    RegisterThemed(handle)
     local handleCorner = Instance.new("UICorner") handleCorner.CornerRadius = UDim.new(0,8) handleCorner.Parent = handle
 
     local valueLabel = Instance.new("TextLabel")
@@ -958,6 +1346,7 @@ local function makeDropDownList(parent, labelText, items, defaultIndex)
     frame.Size = UDim2.new(1, 0, 0, 34)
     frame.BackgroundTransparency = 1
     frame.Parent = parent
+    RegisterThemed(frame)
 
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0.4, -6, 1, 0)
@@ -982,6 +1371,7 @@ local function makeDropDownList(parent, labelText, items, defaultIndex)
     display.Text = ""
     display.TextXAlignment = Enum.TextXAlignment.Left
     display.Parent = frame
+    RegisterThemed(display)
     local displayCorner = Instance.new("UICorner") displayCorner.CornerRadius = UDim.new(0,6) displayCorner.Parent = display
     local displayPad = Instance.new("UIPadding") displayPad.Parent = display
     displayPad.PaddingLeft = UDim.new(0,8)
@@ -1008,6 +1398,7 @@ local function makeDropDownList(parent, labelText, items, defaultIndex)
     local DROP_ZINDEX = 50
     drop.ZIndex = DROP_ZINDEX
     drop.Parent = frame
+    RegisterThemed(drop)
     local dropCorner = Instance.new("UICorner") dropCorner.CornerRadius = UDim.new(0,8) dropCorner.Parent = drop
     local dropStroke = Instance.new("UIStroke") dropStroke.Thickness = 1; dropStroke.Color = COLORS.divider; dropStroke.Parent = drop
 
@@ -1111,7 +1502,7 @@ local function makeDropDownList(parent, labelText, items, defaultIndex)
         end
     end)
 
-    -- API
+    -- ** API
     DropdownAPI[frame] = {
         SetItems = function(tbl) items = tbl or {} populate() end,
         Set = function(idx)
@@ -1188,6 +1579,7 @@ local function makeColorPicker(parent, labelText, defaultColor)
     frame.Size = UDim2.new(1, 0, 0, 34)
     frame.BackgroundTransparency = 1
     frame.Parent = parent
+    RegisterThemed(frame)
 
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0.5, -6, 1, 0)
@@ -1207,6 +1599,7 @@ local function makeColorPicker(parent, labelText, defaultColor)
     display.BorderSizePixel = 0
     display.AutoButtonColor = false
     display.Parent = frame
+    RegisterThemed(display)
     local dispCorner = Instance.new("UICorner") dispCorner.CornerRadius = UDim.new(0,6) dispCorner.Parent = display
     local dispPad = Instance.new("UIPadding") dispPad.Parent = display; dispPad.PaddingLeft = UDim.new(0,8)
 
@@ -1216,6 +1609,7 @@ local function makeColorPicker(parent, labelText, defaultColor)
     swatch.BackgroundColor3 = (type(defaultColor) == "Color3") and defaultColor or COLORS.accent
     swatch.BorderSizePixel = 0
     swatch.Parent = display
+    RegisterThemed(swatch)
     local swCorner = Instance.new("UICorner") swCorner.CornerRadius = UDim.new(0,4) swCorner.Parent = swatch
 
     local arrow = Instance.new("TextLabel")
@@ -1238,6 +1632,7 @@ local function makeColorPicker(parent, labelText, defaultColor)
     palette.Parent = frame
     local TOP_Z = 600
     palette.ZIndex = TOP_Z
+    RegisterThemed(palette)
     local palCorner = Instance.new("UICorner") palCorner.CornerRadius = UDim.new(0,8) palCorner.Parent = palette
     local palStroke = Instance.new("UIStroke") palStroke.Thickness = 1; palStroke.Color = COLORS.divider; palStroke.Parent = palette
 
@@ -1527,6 +1922,7 @@ local function showUnsupportedPopup()
     local pc = Instance.new("UICorner") pc.CornerRadius = UDim.new(0,10) pc.Parent = pop
     local stroke = Instance.new("UIStroke") stroke.Color = COLORS.divider stroke.Thickness = 1 stroke.Parent = pop
 
+
     local header = Instance.new("Frame") header.Size = UDim2.new(1,0,0,40) header.Position = UDim2.new(0,0,0,0) header.BackgroundColor3 = COLORS.bg header.ZIndex = pop.ZIndex + 1 header.Parent = pop
     local icon = Instance.new("TextLabel") icon.Size = UDim2.new(0,36,1,0) icon.Position = UDim2.new(0,10,0,0) icon.BackgroundTransparency = 1 icon.Font = Enum.Font.GothamBold icon.TextSize = 20 icon.TextColor3 = COLORS.accent icon.Text = "⚠" icon.TextXAlignment = Enum.TextXAlignment.Center icon.ZIndex = header.ZIndex + 1 icon.Parent = header
     local title = Instance.new("TextLabel") title.Size = UDim2.new(1,-56,1,0) title.Position = UDim2.new(0,56,0,0) title.BackgroundTransparency = 1 title.Font = Enum.Font.GothamBold title.TextSize = 16 title.TextColor3 = COLORS.text title.Text = "Script Run Check" title.TextXAlignment = Enum.TextXAlignment.Left title.ZIndex = header.ZIndex + 1 title.Parent = header
@@ -1536,6 +1932,27 @@ local function showUnsupportedPopup()
     local btnNo = Instance.new("TextButton") btnNo.Size = UDim2.new(0.44,-8,0,40) btnNo.Position = UDim2.new(0,12,1,-52) btnNo.BackgroundColor3 = COLORS.bg btnNo.Font = Enum.Font.GothamBold btnNo.TextSize = 16 btnNo.TextColor3 = COLORS.text btnNo.Text = "No.." btnNo.ZIndex = pop.ZIndex + 1 btnNo.Parent = pop local noCorner = Instance.new("UICorner") noCorner.CornerRadius = UDim.new(0,8) noCorner.Parent = btnNo local noStroke = Instance.new("UIStroke") noStroke.Color = COLORS.divider noStroke.Thickness = 1 noStroke.Parent = btnNo
     local btnYes = Instance.new("TextButton") btnYes.Size = UDim2.new(0.44,-8,0,40) btnYes.Position = UDim2.new(1,-12,1,-52) btnYes.AnchorPoint = Vector2.new(1,0) btnYes.BackgroundColor3 = COLORS.accent btnYes.Font = Enum.Font.GothamBold btnYes.TextSize = 16 btnYes.TextColor3 = COLORS.white btnYes.Text = "Yes!" btnYes.ZIndex = pop.ZIndex + 1 btnYes.Parent = pop local yesCorner = Instance.new("UICorner") yesCorner.CornerRadius = UDim.new(0,8) yesCorner.Parent = btnYes
 
+    -- register buttons now that they exist
+    RegisterThemed(btnNo, function() pcall(function() btnNo.BackgroundColor3 = COLORS.bg; btnNo.TextColor3 = COLORS.text; if noStroke then noStroke.Color = COLORS.divider end end) end)
+    RegisterThemed(btnYes, function() pcall(function() btnYes.BackgroundColor3 = COLORS.accent; btnYes.TextColor3 = COLORS.white end) end)
+
+    -- register the popup AFTER all children exist so refresh can access them
+    RegisterThemed(pop, function()
+        pcall(function()
+            pop.BackgroundColor3 = COLORS.panel
+            stroke.Color = COLORS.divider
+            if header and header:IsA("GuiObject") then header.BackgroundColor3 = COLORS.bg end
+            if icon and icon:IsA("TextLabel") then icon.TextColor3 = COLORS.accent end
+            if title and title:IsA("TextLabel") then title.TextColor3 = COLORS.text end
+            if msg and msg:IsA("TextLabel") then msg.TextColor3 = COLORS.textDim end
+            if btnNo and btnNo:IsA("TextButton") then btnNo.BackgroundColor3 = COLORS.bg; btnNo.TextColor3 = COLORS.text end
+            if noStroke then noStroke.Color = COLORS.divider end
+            if btnYes and btnYes:IsA("TextButton") then btnYes.BackgroundColor3 = COLORS.accent; btnYes.TextColor3 = COLORS.white end
+        end)
+    end)
+
+    pcall(RefreshRegisteredThemed)
+
     local choice
     btnNo.MouseButton1Click:Connect(function() choice = false end)
     btnYes.MouseButton1Click:Connect(function() choice = true end)
@@ -1543,16 +1960,19 @@ local function showUnsupportedPopup()
     while choice == nil do wait() end
     if choice == false then
         if sg and sg.Parent then sg:Destroy() end
-        return
+        return false
     else
         if sg and sg.Parent then sg:Destroy() end
+        return true
     end
 end
 
 -- ** Unsupported game check ends here **
 
--- Invoke now that `Config` is available and the function is defined
-pcall(function() if type(showUnsupportedPopup) == "function" then showUnsupportedPopup() end end)
+do
+    local ok, res = pcall(function() if type(showUnsupportedPopup) == "function" then return showUnsupportedPopup() end end)
+    if ok and res == false then return end
+end
 
 --------------------------------------------------------------------------
 
@@ -1564,6 +1984,9 @@ root.AnchorPoint = Vector2.new(0.0,0.0)
 root.BackgroundColor3 = COLORS.bg
 root.Parent = gui
 local rootCorner = Instance.new("UICorner") rootCorner.Parent = root
+
+-- register root for automatic theme refresh
+RegisterThemed(root)
 
 local tabsBar = Instance.new("Frame")
 tabsBar.Size = UDim2.new(1,0,0,40)
@@ -1623,6 +2046,9 @@ tabsUnderlay.Parent = root
 local tabsUnderCorner = Instance.new("UICorner") tabsUnderCorner.CornerRadius = UDim.new(0,4) tabsUnderCorner.Parent = tabsUnderlay
 tabsUnderlay.ZIndex = 1
 tabsBar.ZIndex = 2
+
+-- register underlay and tabs for theming
+RegisterThemed(tabsUnderlay)
 
 
 ---------------------------------------------------------------------------
@@ -1762,6 +2188,7 @@ closeBtn.MouseLeave:Connect(function() closeBtn.TextColor3 = COLORS.close end)
 closeBtn.MouseButton1Click:Connect(function()
     showUnloadConfirm()
 end)
+RegisterThemed(closeBtn)
 
 ---------------------------------------------------------------------------
 
@@ -1806,6 +2233,10 @@ combatTab.page.Parent = pages
 -- Settings Tab
 local settingsTab = makeTab("Settings", tabsBar, pages, selectTab, { Left = "General", Right = "Advanced" })
 settingsTab.page.Parent = pages
+
+-- Customization Tab
+local customizationTab = makeTab("Customization", tabsBar, pages, selectTab, { Left = "General", Right = "Advanced" })
+customizationTab.page.Parent = pages
 
 
 -------------------- Break for Tab Selection --------------------
@@ -1891,6 +2322,36 @@ BindToggleToConfig(targetBehindWallsToggle, "combat.targetBehindWalls", false)
 BindToggleToConfig(teamCheckToggle, "combat.teamCheck", true)
 BindToggleToConfig(sixthSenseToggle, "combat.sixthSense", false)
 
+---------------------------------------------------------------------------
+
+-- ** Customization Tab Stuff
+
+local themeDropDownList = makeDropDownList(customizationTab.LeftCol, "Theme", {"Your Desire","Gilded Crown","Blue Hour","Verdant Pulse"}, 1)
+do
+    local api = DropdownAPI[themeDropDownList]
+    if api then
+        api.OnSelect = function(idx, val)
+            if type(val) == "string" then
+                pcall(function() SetConfig("settings.theme", val) end)
+                pcall(function() ApplyTheme(val) end)
+            end
+        end
+        -- apply saved theme from config and set dropdown
+        pcall(function()
+            local saved = GetConfig("settings.theme", "Your Desire")
+            if type(saved) == "string" then
+                ApplyTheme(saved)
+                for i, name in ipairs({"Your Desire","Gilded Crown","Blue Hour","Verdant Pulse"}) do
+                    if name == saved then api.Set(i); break end
+                end
+            else
+                ApplyTheme("Your Desire")
+            end
+        end)
+    end
+end
+
+-- ** Save Customization to Config **
 
 ---------------------------------------------------------------------------
 
