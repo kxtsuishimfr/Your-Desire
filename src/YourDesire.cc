@@ -2420,6 +2420,7 @@ local drawFovCircleToggle = makeToggle(combatTab.LeftCol, "Draw FOV Circle")
 local targetBehindWallsToggle = makeToggle(combatTab.LeftCol, "Target Behind Walls")
 local aimLockKeybind = makeKeyBindButton(combatTab.RightCol, "Aim Lock Keybind", Enum.KeyCode.Q)
 local teamCheckToggle = makeToggle(combatTab.LeftCol, "Team Check")
+local aimPredictionToggle = makeToggle(combatTab.LeftCol, "Aimbot Prediction")
 local sixthSenseToggle = makeToggle(combatTab.RightCol, "Sixth Sense")
 
 
@@ -2431,6 +2432,7 @@ BindToggleToConfig(drawFovCircleToggle, "combat.drawFovCircle", false)
 BindToggleToConfig(targetBehindWallsToggle, "combat.targetBehindWalls", false)
 BindToggleToConfig(teamCheckToggle, "combat.teamCheck", true)
 BindToggleToConfig(sixthSenseToggle, "combat.sixthSense", false)
+BindToggleToConfig(aimPredictionToggle, "combat.aimPrediction", false)
 
 ---------------------------------------------------------------------------
 
@@ -3572,6 +3574,7 @@ do
     local aimHistory = {} -- stores last known positions/times for prediction
     local projSpeedLocal = (type(projSpeed) == "number" and projSpeed) or 900
     local leadScaleLocal = (type(leadScale) == "number" and leadScale) or 1
+    local aimPredictionEnabled = GetConfig("combat.aimPrediction", false) or false
 
     local t = ToggleAPI[aimbotToggle]
     if t then
@@ -3608,13 +3611,49 @@ do
                         hrp = head.Parent and head.Parent:FindFirstChild("HumanoidRootPart")
                     end
                     if hrp then
-                        local ok2, lbl = pcall(function() return hrp:FindFirstChild("TeammateLabel") end)
-                        local res = ok2 and lbl ~= nil
-                        teammateCache[pl] = { hrp = hrp, isTeam = res }
-                        return res
+                        local function findLabelNow()
+                            -- try HRP (and descendants), character, then workspace player folder
+                            local ok, found = pcall(function()
+                                local f = hrp:FindFirstChild("TeammateLabel", true)
+                                if f then return f end
+                                if ch then
+                                    f = ch:FindFirstChild("TeammateLabel", true)
+                                    if f then return f end
+                                end
+                                local wp = workspace:FindFirstChild(pl.Name)
+                                if wp then
+                                    f = wp:FindFirstChild("TeammateLabel", true)
+                                    if f then return f end
+                                end
+                                return nil
+                            end)
+                            if ok and found then return found end
+                            return nil
+                        end
+
+                        local lbl = findLabelNow()
+                        if not lbl then
+                            -- schedule a non-blocking retry after 1s in case label appears later
+                            pcall(function()
+                                if task and task.delay then
+                                    task.delay(1, function()
+                                        local late = findLabelNow()
+                                        if late then
+                                            teammateCache[pl] = { hrp = hrp, isTeam = true }
+                                        end
+                                    end)
+                                else
+                                    spawn(function() wait(1) local late = findLabelNow() if late then teammateCache[pl] = { hrp = hrp, isTeam = true } end end)
+                                end
+                            end)
+                            return false
+                        end
+
+                        -- immediate positive detection
+                        teammateCache[pl] = { hrp = hrp, isTeam = true }
+                        return true
                     end
                 end
-                teammateCache[pl] = { hrp = nil, isTeam = false }
                 return false
             end)
             return ok and isTeam or false
@@ -3714,6 +3753,19 @@ do
                 pcall(function()
                     for k in pairs(teammateCache) do teammateCache[k] = nil end
                 end)
+            end
+        end
+    end
+
+    do
+        local tApi = ToggleAPI[aimPredictionToggle]
+        if tApi then
+            aimPredictionEnabled = tApi.Get and tApi.Get() or aimPredictionEnabled
+            local prev = tApi.OnToggle
+            tApi.OnToggle = function(state)
+                if prev then pcall(prev, state) end
+                aimPredictionEnabled = not not state
+                SetConfig("combat.aimPrediction", aimPredictionEnabled)
             end
         end
     end
@@ -3822,9 +3874,43 @@ do
                                 if cache and cache.hrp == hrp then
                                     isTeammate = cache.isTeam
                                 else
-                                    local ok, lbl = pcall(function() return hrp:FindFirstChild("TeammateLabel") end)
-                                    isTeammate = ok and lbl ~= nil
-                                    teammateCache[pl] = { hrp = hrp, isTeam = isTeammate }
+                                    local function findLabelNow()
+                                        local ok, found = pcall(function()
+                                            local f = hrp:FindFirstChild("TeammateLabel", true)
+                                            if f then return f end
+                                            if ch then
+                                                f = ch:FindFirstChild("TeammateLabel", true)
+                                                if f then return f end
+                                            end
+                                            local wp = workspace:FindFirstChild(pl.Name)
+                                            if wp then
+                                                f = wp:FindFirstChild("TeammateLabel", true)
+                                                if f then return f end
+                                            end
+                                            return nil
+                                        end)
+                                        if ok and found then return found end
+                                        return nil
+                                    end
+
+                                    local lbl = findLabelNow()
+                                    if not lbl then
+                                        -- schedule non-blocking retry; don't block render loop
+                                        pcall(function()
+                                            if task and task.delay then
+                                                task.delay(1, function()
+                                                    local late = findLabelNow()
+                                                    if late then teammateCache[pl] = { hrp = hrp, isTeam = true } end
+                                                end)
+                                            else
+                                                spawn(function() wait(1) local late = findLabelNow() if late then teammateCache[pl] = { hrp = hrp, isTeam = true } end end)
+                                            end
+                                        end)
+                                        isTeammate = false
+                                    else
+                                        isTeammate = true
+                                        teammateCache[pl] = { hrp = hrp, isTeam = true }
+                                    end
                                 end
                             end
                         end
@@ -3900,24 +3986,24 @@ do
                         if okDist and dist and travel and travel > 0 then
                             local tt = dist / travel
                             -- compute lateral (perpendicular) velocity to avoid over-leading on short-ranged hitscan-like weapons
-                            if estVel then
-                                local dir = (head.Position - cam.CFrame.Position)
-                                local dirUnit = (dir.Magnitude > 0) and (dir / dir.Magnitude) or Vector3.new(0,0,0)
-                                local forwardComp = estVel:Dot(dirUnit)
-                                local lateral = estVel - dirUnit * forwardComp
-                                local lateralMag = lateral.Magnitude
-                                -- scale lead: none for very small travel times, ramp up for moderate distances
-                                local leadFactor = 1
-                                if tt < 0.04 then
-                                    leadFactor = 0
-                                elseif tt < 0.12 then
-                                    leadFactor = (tt - 0.04) / (0.12 - 0.04)
-                                else
-                                    leadFactor = 1
+                                if estVel and aimPredictionEnabled then
+                                    local dir = (head.Position - cam.CFrame.Position)
+                                    local dirUnit = (dir.Magnitude > 0) and (dir / dir.Magnitude) or Vector3.new(0,0,0)
+                                    local forwardComp = estVel:Dot(dirUnit)
+                                    local lateral = estVel - dirUnit * forwardComp
+                                    local lateralMag = lateral.Magnitude
+                                    -- scale lead: none for very small travel times, ramp up for moderate distances
+                                    local leadFactor = 1
+                                    if tt < 0.04 then
+                                        leadFactor = 0
+                                    elseif tt < 0.12 then
+                                        leadFactor = (tt - 0.04) / (0.12 - 0.04)
+                                    else
+                                        leadFactor = 1
+                                    end
+                                    -- apply only lateral component scaled by time and leadScaleLocal
+                                    predicted = predicted + lateral * tt * leadScaleLocal * leadFactor
                                 end
-                                -- apply only lateral component scaled by time and leadScaleLocal
-                                predicted = predicted + lateral * tt * leadScaleLocal * leadFactor
-                            end
                         end
                     end
 
@@ -3961,7 +4047,7 @@ do
                                 local moveX = dx * damp
                                 local moveY = dy * damp
                                 -- if we have estimated velocity, slightly increase lead compensation
-                                if estVel then
+                                if estVel and aimPredictionEnabled then
                                     -- only apply small extra compensation when lead is meaningful
                                     local okPred, predScreen = pcall(function() return cam:WorldToViewportPoint(head.Position + estVel * 0.05) end)
                                     if okPred and predScreen and predScreen.X then
