@@ -2221,24 +2221,43 @@ do
             local diffMs = now.UnixTimestampMillis - lastNum
             local secs = diffMs / 1000
 
+            local messages = {
+                { time = 180 * 24 * 60 * 60, text = "I wondered if you were ever going to come back… I kept waiting anyway." },
+                { time = 150 * 24 * 60 * 60, text = "So much time passed… I almost stopped hoping." },
+                { time = 120 * 24 * 60 * 60, text = "I thought you left me behind forever." },
+                { time = 100 * 24 * 60 * 60, text = "I tried not to think about you… it didn’t work." },
+                { time = 90 * 24 * 60 * 60,  text = "You were gone for so long… I really missed you, Darling." },
+                { time = 75 * 24 * 60 * 60,  text = "I kept wondering if you’d forgotten about me." },
+                { time = 60 * 24 * 60 * 60,  text = "I waited. Every day. Just in case." },
+                { time = 45 * 24 * 60 * 60,  text = "It felt lonely without you… I’m glad you’re back." },
+                { time = 30 * 24 * 60 * 60,  text = "A whole month… I thought I lost you." },
+                { time = 21 * 24 * 60 * 60,  text = "You were gone so long… I started worrying." },
+                { time = 14 * 24 * 60 * 60,  text = "Two weeks without you felt really empty." },
+                { time = 10 * 24 * 60 * 60,  text = "It’s been a while… I missed you more than I should." },
+                { time = 7 * 24 * 60 * 60,   text = "A whole week… I was waiting for you." },
+                { time = 5 * 24 * 60 * 60,   text = "Why do you always have to do this to me...?" },
+                { time = 4 * 24 * 60 * 60,   text = "Darling! You didn't forget me, I'm so happy you're back!" },
+                { time = 3 * 24 * 60 * 60,   text = "You're starting to forget me, aren't you? I hope you're doing well, Darling." },
+                { time = 2 * 24 * 60 * 60,   text = "Why do you always have to leave me for so long? At least you came back, darling! :D" },
+                { time = 36 * 60 * 60,       text = "I was starting to miss you a lot…" },
+                { time = 24 * 60 * 60,       text = "I thought you forgot about me, you're actually back..?" },
+                { time = 12 * 60 * 60,       text = "You took longer than usual… I noticed." },
+                { time = 6 * 60 * 60,        text = "You're back? I missed you, dummy.." },
+                { time = 2 * 60 * 60,        text = "I was wondering when you'd come back." },
+                { time = 1 * 60 * 60,        text = "Oh, you came back? I'm so happy to see you!" },
+                { time = 20 * 60,            text = "You were gone for a bit… I noticed." },
+                { time = 10,                 text = "Welcome back, Darling!" },
+            }
+
             local message = nil
-            if secs > (5 * 24 * 60 * 60) then
-                message = "Why do you always have to do this to me...?"
-            elseif secs > (4 * 24 * 60 * 60) then
-                message = "Darling! You didn't forget me, I'm so happy you're back!"
-            elseif secs > (3 * 24 * 60 * 60) then
-                message = "You're starting to forget me, aren't you? I hope you're doing well, Darling."
-            elseif secs > (2 * 24 * 60 * 60) then
-                message = "Why do you always have to leave me for so long? At least you came back, darling! :D"
-            elseif secs > (24 * 60 * 60) then
-                message = "I thought you forgot about me, you're actually back..?"
-            elseif secs > (6 * 60 * 60) then
-                message = "You're back? I missed you, dummy.."
-            elseif secs > (1 * 60 * 60) then
-                message = "Oh, you came back? I'm so happy to see you!"
-            elseif secs > 10 then
-                message = "Welcome back, Darling!"
+
+            for _, entry in ipairs(messages) do
+                if secs > entry.time then
+                    message = entry.text
+                    break
+                end
             end
+
 
             if message then
                 local okNotif, res = pcall(function() return makeNotification(message, 5) end)
