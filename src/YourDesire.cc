@@ -856,14 +856,33 @@ local function makeNotification(text, duration, parent, invoker)
         pad.PaddingBottom = UDim.new(0, 0)
     end
 
+    local TextService = game:GetService("TextService")
+    local msgStr = tostring(text or "Notification")
+    local fontSize = 16
+    local font = Enum.Font.GothamBold
+    local screenW = 760
+    pcall(function() if gui and gui.Parent and gui.AbsoluteSize and gui.AbsoluteSize.X then screenW = gui.AbsoluteSize.X end end)
+    local maxAllowed = math.max(240, screenW - 24)
+    local maxContentW = math.min(600, maxAllowed - 80)
+    local measured = TextService:GetTextSize(msgStr, fontSize, font, Vector2.new(maxContentW, 10000))
+    local _tmpW = math.ceil(measured.X + 80)
+    local targetW = math.min(math.max(_tmpW, 240), maxAllowed)
+    local targetH = math.max(56, math.ceil(measured.Y + 24))
+
     local container = Instance.new("Frame")
     container.Name = "RivalsNotification"
-    container.Size = UDim2.new(0, 420, 0, 56)
+    container.Size = UDim2.new(0, targetW, 0, targetH)
     container.BackgroundColor3 = COLORS.panelDark
     container.BorderSizePixel = 0
     container.ZIndex = holder.ZIndex
     container.LayoutOrder = math.floor(tick() * 1000)
     container.Parent = holder
+    pcall(function()
+        local hX = holder.Size.X.Offset or 420
+        if targetW > hX then
+            holder.Size = UDim2.new(0, targetW, holder.Size.Y.Scale, holder.Size.Y.Offset)
+        end
+    end)
     RegisterThemed(container)
     local cCorner = Instance.new("UICorner") cCorner.CornerRadius = UDim.new(0,10) cCorner.Parent = container
     local cStroke = Instance.new("UIStroke") cStroke.Color = COLORS.divider; cStroke.Thickness = 1; cStroke.Parent = container
@@ -901,13 +920,14 @@ local function makeNotification(text, duration, parent, invoker)
     label.Size = UDim2.new(1, -36, 1, 0)
     label.Position = UDim2.new(0, 36, 0, 0)
     label.BackgroundTransparency = 1
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 16
-    label.Text = tostring(text or "Notification")
+    label.Font = font
+    label.TextSize = fontSize
+    label.Text = msgStr
     label.TextColor3 = COLORS.text
     label.TextStrokeTransparency = 0.7
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextYAlignment = Enum.TextYAlignment.Center
+    label.TextWrapped = true
     label.ZIndex = inner.ZIndex + 1
     label.Parent = inner
 
@@ -931,9 +951,9 @@ local function makeNotification(text, duration, parent, invoker)
 
     -- ** entrance animation (pop)
     pcall(function()
-        container.Size = UDim2.new(0, 420, 0, 0)
+        container.Size = UDim2.new(0, targetW, 0, 0)
         container.Position = container.Position
-        TweenService:Create(container, TweenInfo.new(0.34, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {Size = UDim2.new(0, 420, 0, 56)}):Play()
+        TweenService:Create(container, TweenInfo.new(0.34, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {Size = UDim2.new(0, targetW, 0, targetH)}):Play()
         -- ** fade/slide inner
         label.TextTransparency = 1
         icon.TextTransparency = 1
@@ -1932,11 +1952,9 @@ local function showUnsupportedPopup()
     local btnNo = Instance.new("TextButton") btnNo.Size = UDim2.new(0.44,-8,0,40) btnNo.Position = UDim2.new(0,12,1,-52) btnNo.BackgroundColor3 = COLORS.bg btnNo.Font = Enum.Font.GothamBold btnNo.TextSize = 16 btnNo.TextColor3 = COLORS.text btnNo.Text = "No.." btnNo.ZIndex = pop.ZIndex + 1 btnNo.Parent = pop local noCorner = Instance.new("UICorner") noCorner.CornerRadius = UDim.new(0,8) noCorner.Parent = btnNo local noStroke = Instance.new("UIStroke") noStroke.Color = COLORS.divider noStroke.Thickness = 1 noStroke.Parent = btnNo
     local btnYes = Instance.new("TextButton") btnYes.Size = UDim2.new(0.44,-8,0,40) btnYes.Position = UDim2.new(1,-12,1,-52) btnYes.AnchorPoint = Vector2.new(1,0) btnYes.BackgroundColor3 = COLORS.accent btnYes.Font = Enum.Font.GothamBold btnYes.TextSize = 16 btnYes.TextColor3 = COLORS.white btnYes.Text = "Yes!" btnYes.ZIndex = pop.ZIndex + 1 btnYes.Parent = pop local yesCorner = Instance.new("UICorner") yesCorner.CornerRadius = UDim.new(0,8) yesCorner.Parent = btnYes
 
-    -- register buttons now that they exist
     RegisterThemed(btnNo, function() pcall(function() btnNo.BackgroundColor3 = COLORS.bg; btnNo.TextColor3 = COLORS.text; if noStroke then noStroke.Color = COLORS.divider end end) end)
     RegisterThemed(btnYes, function() pcall(function() btnYes.BackgroundColor3 = COLORS.accent; btnYes.TextColor3 = COLORS.white end) end)
 
-    -- register the popup AFTER all children exist so refresh can access them
     RegisterThemed(pop, function()
         pcall(function()
             pop.BackgroundColor3 = COLORS.panel
@@ -1985,7 +2003,6 @@ root.BackgroundColor3 = COLORS.bg
 root.Parent = gui
 local rootCorner = Instance.new("UICorner") rootCorner.Parent = root
 
--- register root for automatic theme refresh
 RegisterThemed(root)
 
 local tabsBar = Instance.new("Frame")
@@ -2047,7 +2064,6 @@ local tabsUnderCorner = Instance.new("UICorner") tabsUnderCorner.CornerRadius = 
 tabsUnderlay.ZIndex = 1
 tabsBar.ZIndex = 2
 
--- register underlay and tabs for theming
 RegisterThemed(tabsUnderlay)
 
 
@@ -2192,6 +2208,81 @@ RegisterThemed(closeBtn)
 
 ---------------------------------------------------------------------------
 
+-- ** Lovely welcome back messages ** --
+
+do
+    local KEY = "meta.lastRun"
+    local last = GetConfig(KEY, nil)
+    local now = DateTime.now()
+
+    if last ~= nil then
+        local ok, lastNum = pcall(function() return tonumber(last) end)
+        if ok and lastNum then
+            local diffMs = now.UnixTimestampMillis - lastNum
+            local secs = diffMs / 1000
+
+            local message = nil
+            if secs > (5 * 24 * 60 * 60) then
+                message = "Why do you always have to do this to me...?"
+            elseif secs > (4 * 24 * 60 * 60) then
+                message = "Darling! You didn't forget me, I'm so happy you're back!"
+            elseif secs > (3 * 24 * 60 * 60) then
+                message = "You're starting to forget me, aren't you? I hope you're doing well, Darling."
+            elseif secs > (2 * 24 * 60 * 60) then
+                message = "Why do you always have to leave me for so long? At least you came back, darling! :D"
+            elseif secs > (24 * 60 * 60) then
+                message = "I thought you forgot about me, you're actually back..?"
+            elseif secs > (6 * 60 * 60) then
+                message = "You're back? I missed you, dummy.."
+            elseif secs > (1 * 60 * 60) then
+                message = "Oh, you came back? I'm so happy to see you!"
+            elseif secs > 10 then
+                message = "Welcome back, Darling!"
+            end
+
+            if message then
+                local okNotif, res = pcall(function() return makeNotification(message, 5) end)
+                if not okNotif or not res then
+                    pcall(function()
+                        if gui and gui.Parent then
+                            local sg = gui
+                            local holder = Instance.new("Frame")
+                            holder.Name = "Rivals_WelcomeHolder"
+                            holder.Size = UDim2.new(1,0,0,80)
+                            holder.Position = UDim2.new(0,0,0.02,0)
+                            holder.BackgroundTransparency = 1
+                            holder.ZIndex = 100000
+                            holder.Parent = sg
+
+                            local label = Instance.new("TextLabel")
+                            label.Size = UDim2.new(0.9,0,1,0)
+                            label.Position = UDim2.new(0.05,0,0,0)
+                            label.AnchorPoint = Vector2.new(0,0)
+                            label.BackgroundColor3 = COLORS.accent
+                            label.TextColor3 = COLORS.white
+                            label.Font = Enum.Font.GothamBold
+                            label.TextSize = 20
+                            label.Text = message
+                            label.TextWrapped = true
+                            label.TextYAlignment = Enum.TextYAlignment.Center
+                            label.ZIndex = holder.ZIndex + 1
+                            label.Parent = holder
+
+                            local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0,8) corner.Parent = label
+                            delay(5, function()
+                                pcall(function() holder:Destroy() end)
+                            end)
+                        end
+                    end)
+                end
+            end
+        end
+    end
+
+    pcall(function() SetConfig(KEY, tostring(now.UnixTimestampMillis)) end)
+end
+
+------------------------------------------------------------------------
 
 -- ** tab selection
 local function selectTab(button, page)
