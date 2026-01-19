@@ -1834,6 +1834,33 @@ local function makeColorPicker(parent, labelText, defaultColor)
     return frame
 end
 
+--------------------------------------------------------------------------
+
+-- ** makeDebugLabel
+
+
+-- Minimal debug label helper (Drawing-first, simple API)
+local makeDebugLabel_offset = 0
+local function makeDebugLabel(initialText)
+    local txt = Drawing.new("Text")
+    txt.Text = tostring(initialText or "")
+    txt.Size = 16
+    txt.Color = Color3.new(1, 1, 1)
+    txt.Position = Vector2.new(8, 8 + makeDebugLabel_offset)
+    txt.Visible = true
+    txt.Center = false
+    txt.Outline = true
+    txt.ZIndex = 10
+    makeDebugLabel_offset = makeDebugLabel_offset + 28
+
+    local api = {}
+    api.Set = function(text) txt.Text = tostring(text or "") end
+    api.Show = function(v) txt.Visible = not not v end
+    api.Destroy = function() txt:Remove() end
+    return api
+end
+
+
 
 --------------------------------------------------------------------------
 
@@ -2394,6 +2421,7 @@ local closeOpenGuiKeybind = makeKeyBindButton(settingsTab.LeftCol, "Close/Open G
 local autoScaleUIToggle = makeToggle(settingsTab.LeftCol, "Auto-Scale UI")
 local warnIfUnsupportedGameToggle = makeToggle(settingsTab.RightCol, "Warn when executing")
 local showNotificationsToggle = makeToggle(settingsTab.RightCol, "Enable Notifications")
+local debugModeToggle = makeToggle(settingsTab.RightCol, "Debug Mode")
 
 
 -- ** Save Settings to Config **
@@ -2401,6 +2429,7 @@ BindToggleToConfig(showGuiOnLoadToggle, "settings.showGuiOnLoad", true)
 BindToggleToConfig(autoScaleUIToggle, "settings.autoScaleUI", false)
 BindToggleToConfig(warnIfUnsupportedGameToggle, "settings.warnIfUnsupportedGame", true)
 BindToggleToConfig(showNotificationsToggle, "settings.enableNotifications", true)
+BindToggleToConfig(debugModeToggle, "settings.debugMode", false)
 
 
 ---------------------------------------------------------------------------
@@ -2420,8 +2449,9 @@ local drawFovCircleToggle = makeToggle(combatTab.LeftCol, "Draw FOV Circle")
 local targetBehindWallsToggle = makeToggle(combatTab.LeftCol, "Target Behind Walls")
 local aimLockKeybind = makeKeyBindButton(combatTab.RightCol, "Aim Lock Keybind", Enum.KeyCode.Q)
 local teamCheckToggle = makeToggle(combatTab.LeftCol, "Team Check")
-local aimPredictionToggle = makeToggle(combatTab.LeftCol, "Aimbot Prediction")
+local aimPredictionToggle = makeToggle(combatTab.RightCol, "Aimbot Prediction")
 local sixthSenseToggle = makeToggle(combatTab.RightCol, "Sixth Sense")
+local persistentAimbotToggle = makeToggle(combatTab.LeftCol, "Persistent Aimbot")
 
 
 
@@ -2433,6 +2463,7 @@ BindToggleToConfig(targetBehindWallsToggle, "combat.targetBehindWalls", false)
 BindToggleToConfig(teamCheckToggle, "combat.teamCheck", true)
 BindToggleToConfig(sixthSenseToggle, "combat.sixthSense", false)
 BindToggleToConfig(aimPredictionToggle, "combat.aimPrediction", false)
+BindToggleToConfig(persistentAimbotToggle, "combat.persistentAimbot", false)
 
 ---------------------------------------------------------------------------
 
@@ -3729,6 +3760,7 @@ do
                 if prev then pcall(prev, state) end
                 smoothingEnabled = not not state
                 SetConfig("combat.useAimbotSmoothing", smoothingEnabled)
+                pcall(function() if debugDelayLabel then debugDelayLabel.Show(debugModeEnabled and not smoothingEnabled) end end)
             end
         end
         if sApi then
@@ -3738,6 +3770,7 @@ do
                 SetConfig("combat.aimbotSmoothing", smoothingValue)
             end
             pcall(function() sApi.Set(smoothingValue) end)
+            pcall(function() if debugDelayLabel then debugDelayLabel.Show(debugModeEnabled and not smoothingEnabled) end end)
         end
     end
 
@@ -3895,7 +3928,6 @@ do
 
                                     local lbl = findLabelNow()
                                     if not lbl then
-                                        -- schedule non-blocking retry; don't block render loop
                                         pcall(function()
                                             if task and task.delay then
                                                 task.delay(1, function()
@@ -3949,6 +3981,33 @@ do
         return best, bestDist
     end
 
+    local debugModeEnabled = GetConfig("settings.debugMode", false) or false
+    local debugTrackerLabel, debugDelayLabel = nil, nil
+    do
+        debugTrackerLabel = makeDebugLabel("")
+        debugDelayLabel = makeDebugLabel("")
+        local tApi = ToggleAPI[debugModeToggle]
+        if tApi then
+            debugModeEnabled = tApi.Get and tApi.Get() or debugModeEnabled
+            local prev = tApi.OnToggle
+            tApi.OnToggle = function(s)
+                if prev then pcall(prev, s) end
+                debugModeEnabled = not not s
+                if debugTrackerLabel then debugTrackerLabel.Show(debugModeEnabled) end
+                if debugDelayLabel then debugDelayLabel.Show(debugModeEnabled and not smoothingEnabled) end
+            end
+        end
+        if debugTrackerLabel then debugTrackerLabel.Show(debugModeEnabled) end
+        if debugDelayLabel then debugDelayLabel.Show(debugModeEnabled and not smoothingEnabled) end
+        RegisterUnload(function()
+            if debugTrackerLabel then debugTrackerLabel.Destroy() end
+            if debugDelayLabel then debugDelayLabel.Destroy() end
+        end)
+    end
+
+    local persistentTarget = nil
+
+
     local function startLoop()
         if loopConn then return end
         loopConn = RunService.RenderStepped:Connect(function()
@@ -3961,6 +4020,34 @@ do
             if not cam then return end
 
             local head = findClosestHead()
+            local pApi = ToggleAPI[persistentAimbotToggle]
+            local persistentEnabled = pApi and pApi.Get and pApi.Get()
+            local now = tick()
+            if head and head.Position then
+                if persistentEnabled then
+                    -- store the player model so we can reacquire the head if needed
+                    persistentTarget = { model = head.Parent, lastPos = head.Position, t = now }
+                end
+            else
+                if persistentEnabled and persistentTarget and persistentTarget.model and persistentTarget.model.Parent then
+                    local model = persistentTarget.model
+                    local reacquire = model:FindFirstChild("Head") or model:FindFirstChild("UpperTorso") or model:FindFirstChild("HumanoidRootPart")
+                    if reacquire and reacquire.Position then
+                        head = reacquire
+                        persistentTarget.lastPos = reacquire.Position
+                        persistentTarget.t = now
+                    else
+                        -- If we can't reacquire, aim at last known position for a short timeout
+                        local timeout = 3 -- seconds
+                        if persistentTarget.lastPos and (now - (persistentTarget.t or 0) <= timeout) then
+                            -- create a lightweight head-like table so downstream code can use head.Position
+                            head = { Position = persistentTarget.lastPos }
+                        else
+                            persistentTarget = nil
+                        end
+                    end
+                end
+            end
             if head and head.Position then
                 pcall(function()
                     local predicted = head.Position
@@ -3972,6 +4059,17 @@ do
                     end
                     local histId = (head.Parent and head.Parent.Name) or tostring(head)
                     local prev = aimHistory[histId]
+                    pcall(function()
+                        if debugModeEnabled and debugTrackerLabel then
+                            local method = smoothingEnabled and "mousemoverel (smoothed)" or "mousemoverel (unsmoothed)"
+                            debugTrackerLabel.Set("Using " .. method .. " ; smoothing is " .. (smoothingEnabled and "ON" or "OFF"))
+                        end
+                        if debugModeEnabled and not smoothingEnabled and debugDelayLabel then
+                            local delayMs = 0
+                            if prev and prev.t then delayMs = (now - prev.t) * 1000 end
+                            debugDelayLabel.Set("Delay between head and cursor: " .. tostring(math.floor(delayMs)) .. " ms")
+                        end
+                    end)
                     if (not estVel or (estVel and estVel.Magnitude < 0.001)) and prev and prev.pos and prev.t then
                         local dt = now - prev.t
                         if dt > 0 then
@@ -3985,14 +4083,12 @@ do
                         local travel = (type(projSpeedLocal) == "number" and projSpeedLocal) or 900
                         if okDist and dist and travel and travel > 0 then
                             local tt = dist / travel
-                            -- compute lateral (perpendicular) velocity to avoid over-leading on short-ranged hitscan-like weapons
                                 if estVel and aimPredictionEnabled then
                                     local dir = (head.Position - cam.CFrame.Position)
                                     local dirUnit = (dir.Magnitude > 0) and (dir / dir.Magnitude) or Vector3.new(0,0,0)
                                     local forwardComp = estVel:Dot(dirUnit)
                                     local lateral = estVel - dirUnit * forwardComp
                                     local lateralMag = lateral.Magnitude
-                                    -- scale lead: none for very small travel times, ramp up for moderate distances
                                     local leadFactor = 1
                                     if tt < 0.04 then
                                         leadFactor = 0
@@ -4001,13 +4097,41 @@ do
                                     else
                                         leadFactor = 1
                                     end
-                                    -- apply only lateral component scaled by time and leadScaleLocal
                                     predicted = predicted + lateral * tt * leadScaleLocal * leadFactor
                                 end
                         end
                     end
 
                     local p = cam:WorldToViewportPoint(predicted)
+                    -- If persistence enabled and the target is behind us, move the mouse relatively
+                    -- to rotate the camera toward the predicted position (avoid setting CFrame directly)
+                    if (leftDown or forceActive) and persistentEnabled and p and p.Z and p.Z <= 0 then
+                        pcall(function()
+                            local camPos = cam.CFrame.Position
+                            local dir = (predicted - camPos)
+                            local look = cam.CFrame.LookVector
+                            -- yaw (horizontal)
+                            local desiredYaw = math.atan2(dir.X, dir.Z)
+                            local currentYaw = math.atan2(look.X, look.Z)
+                            local deltaYaw = desiredYaw - currentYaw
+                            if deltaYaw > math.pi then deltaYaw = deltaYaw - 2 * math.pi end
+                            if deltaYaw < -math.pi then deltaYaw = deltaYaw + 2 * math.pi end
+                            -- pitch (vertical)
+                            local desiredPitch = math.atan2(dir.Y, math.sqrt(dir.X * dir.X + dir.Z * dir.Z))
+                            local currentPitch = math.atan2(look.Y, math.sqrt(look.X * look.X + look.Z * look.Z))
+                            local deltaPitch = desiredPitch - currentPitch
+                            -- map radians -> pixels using camera FOV and viewport
+                            local vFov = math.rad(cam.FieldOfView or 70)
+                            local vs = cam.ViewportSize
+                            local aspect = (vs.X > 0 and vs.Y > 0) and (vs.X / vs.Y) or 1
+                            local hFov = 2 * math.atan(math.tan(vFov * 0.5) * aspect)
+                            local pxPerRadX = (hFov ~= 0) and (vs.X / hFov) or vs.X
+                            local pxPerRadY = (vFov ~= 0) and (vs.Y / vFov) or vs.Y
+                            local moveX = deltaYaw * pxPerRadX
+                            local moveY = -deltaPitch * pxPerRadY
+                            pcall(function() mousemoverel(moveX, moveY) end)
+                        end)
+                    end
                     if (leftDown or forceActive) and p.Z and p.Z > 0 then
                         local mousePos = UserInputService:GetMouseLocation()
                         local dx = p.X - mousePos.X
@@ -4038,26 +4162,14 @@ do
                                 if toMoveX ~= 0 or toMoveY ~= 0 then
                                     toMoveX = math.clamp(toMoveX, -150, 150)
                                     toMoveY = math.clamp(toMoveY, -150, 150)
-                                    pcall(function() mousemoverel(toMoveX, toMoveY) end)
+                                    pcall(function()
+                                        mousemoverel(toMoveX, toMoveY)
+                                    end)
                                 end
                             else
-                                -- smarter unsmoothed movement: apply damping to reduce overshoot while
-                                -- keeping it aggressive and use predicted screen location already computed
-                                local damp = 0.85
-                                local moveX = dx * damp
-                                local moveY = dy * damp
-                                -- if we have estimated velocity, slightly increase lead compensation
-                                if estVel and aimPredictionEnabled then
-                                    -- only apply small extra compensation when lead is meaningful
-                                    local okPred, predScreen = pcall(function() return cam:WorldToViewportPoint(head.Position + estVel * 0.05) end)
-                                    if okPred and predScreen and predScreen.X then
-                                        local extraX = (predScreen.X - p.X) * 0.25
-                                        local extraY = (predScreen.Y - p.Y) * 0.25
-                                        moveX = moveX + extraX
-                                        moveY = moveY + extraY
-                                    end
-                                end
-                                pcall(function() mousemoverel(moveX, moveY) end)
+                                pcall(function()
+                                    pcall(function() mousemoverel(dx, dy) end)
+                                end)
                             end
                         end
                     end
@@ -4101,6 +4213,7 @@ do
     inputConnEnd = UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             leftDown = false
+            persistentTarget = nil
             if not leftDown then stopLoop() end
         end
     end)
