@@ -2453,6 +2453,9 @@ local aimPredictionToggle = makeToggle(combatTab.RightCol, "Aimbot Prediction")
 local sixthSenseToggle = makeToggle(combatTab.RightCol, "Sixth Sense")
 local persistentAimbotToggle = makeToggle(combatTab.LeftCol, "Persistent Aimbot")
 
+local autoShootToggle = makeToggle(combatTab.LeftCol, "Auto-Shoot")
+local enableAutoShootKeybind = makeKeyBindButton(combatTab.RightCol, "Auto-Shoot Keybind", Enum.KeyCode.Y)
+
 
 
 -- ** Save Combat to Config **
@@ -2464,6 +2467,7 @@ BindToggleToConfig(teamCheckToggle, "combat.teamCheck", true)
 BindToggleToConfig(sixthSenseToggle, "combat.sixthSense", false)
 BindToggleToConfig(aimPredictionToggle, "combat.aimPrediction", false)
 BindToggleToConfig(persistentAimbotToggle, "combat.persistentAimbot", false)
+BindToggleToConfig(autoShootToggle, "combat.autoShoot", false)
 
 ---------------------------------------------------------------------------
 
@@ -3681,7 +3685,7 @@ do
     local aimAccumX, aimAccumY = 0, 0
     local teamCheckEnabled = GetConfig("combat.teamCheck", true) or true
     local teammateCache = {}
-    local aimHistory = {} -- stores last known positions/times for prediction
+    local aimHistory = {} 
     local projSpeedLocal = (type(projSpeed) == "number" and projSpeed) or 900
     local leadScaleLocal = (type(leadScale) == "number" and leadScale) or 1
     local aimPredictionEnabled = GetConfig("combat.aimPrediction", false) or false
@@ -3722,7 +3726,6 @@ do
                     end
                     if hrp then
                         local function findLabelNow()
-                            -- try HRP (and descendants), character, then workspace player folder
                             local ok, found = pcall(function()
                                 local f = hrp:FindFirstChild("TeammateLabel", true)
                                 if f then return f end
@@ -3743,7 +3746,6 @@ do
 
                         local lbl = findLabelNow()
                         if not lbl then
-                            -- schedule a non-blocking retry after 1s in case label appears later
                             pcall(function()
                                 if task and task.delay then
                                     task.delay(1, function()
@@ -3759,7 +3761,6 @@ do
                             return false
                         end
 
-                        -- immediate positive detection
                         teammateCache[pl] = { hrp = hrp, isTeam = true }
                         return true
                     end
@@ -4104,8 +4105,8 @@ do
             local now = tick()
             if head and head.Position then
                 if persistentEnabled then
-                    -- store the player model so we can reacquire the head if needed
-                    persistentTarget = { model = head.Parent, lastPos = head.Position, t = now }
+                    persistentTarget = { model = head.Parent, player = Players:GetPlayerFromCharacter(head.Parent), lastPos = head.Position, t = now }
+                    if type(_G) == "table" and _G.RivalsCHT_Aimbot then _G.RivalsCHT_Aimbot.PersistentTarget = persistentTarget end
                 end
             else
                 if persistentEnabled and persistentTarget and persistentTarget.model and persistentTarget.model.Parent then
@@ -4116,13 +4117,12 @@ do
                         persistentTarget.lastPos = reacquire.Position
                         persistentTarget.t = now
                     else
-                        -- If we can't reacquire, aim at last known position for a short timeout
-                        local timeout = 3 -- seconds
+                        local timeout = 3 
                         if persistentTarget.lastPos and (now - (persistentTarget.t or 0) <= timeout) then
-                            -- create a lightweight head-like table so downstream code can use head.Position
                             head = { Position = persistentTarget.lastPos }
                         else
                             persistentTarget = nil
+                            if type(_G) == "table" and _G.RivalsCHT_Aimbot then _G.RivalsCHT_Aimbot.PersistentTarget = nil end
                         end
                     end
                 end
@@ -4182,24 +4182,19 @@ do
                     end
 
                     local p = cam:WorldToViewportPoint(predicted)
-                    -- If persistence enabled and the target is behind us, move the mouse relatively
-                    -- to rotate the camera toward the predicted position (avoid setting CFrame directly)
                     if (leftDown or forceActive) and persistentEnabled and p and p.Z and p.Z <= 0 then
                         pcall(function()
                             local camPos = cam.CFrame.Position
                             local dir = (predicted - camPos)
                             local look = cam.CFrame.LookVector
-                            -- yaw (horizontal)
                             local desiredYaw = math.atan2(dir.X, dir.Z)
                             local currentYaw = math.atan2(look.X, look.Z)
                             local deltaYaw = desiredYaw - currentYaw
                             if deltaYaw > math.pi then deltaYaw = deltaYaw - 2 * math.pi end
                             if deltaYaw < -math.pi then deltaYaw = deltaYaw + 2 * math.pi end
-                            -- pitch (vertical)
                             local desiredPitch = math.atan2(dir.Y, math.sqrt(dir.X * dir.X + dir.Z * dir.Z))
                             local currentPitch = math.atan2(look.Y, math.sqrt(look.X * look.X + look.Z * look.Z))
                             local deltaPitch = desiredPitch - currentPitch
-                            -- map radians -> pixels using camera FOV and viewport
                             local vFov = math.rad(cam.FieldOfView or 70)
                             local vs = cam.ViewportSize
                             local aspect = (vs.X > 0 and vs.Y > 0) and (vs.X / vs.Y) or 1
@@ -4208,7 +4203,7 @@ do
                             local pxPerRadY = (vFov ~= 0) and (vs.Y / vFov) or vs.Y
                             local moveX = deltaYaw * pxPerRadX
                             local moveY = -deltaPitch * pxPerRadY
-                            pcall(function() mousemoverel(moveX, moveY) end)
+                            mousemoverel(moveX, moveY)
                         end)
                     end
                     if (leftDown or forceActive) and p.Z and p.Z > 0 then
@@ -4241,14 +4236,10 @@ do
                                 if toMoveX ~= 0 or toMoveY ~= 0 then
                                     toMoveX = math.clamp(toMoveX, -150, 150)
                                     toMoveY = math.clamp(toMoveY, -150, 150)
-                                    pcall(function()
-                                        mousemoverel(toMoveX, toMoveY)
-                                    end)
+                                    mousemoverel(toMoveX, toMoveY)
                                 end
                             else
-                                pcall(function()
-                                    pcall(function() mousemoverel(dx, dy) end)
-                                end)
+                                mousemoverel(dx, dy)
                             end
                         end
                     end
@@ -4318,6 +4309,67 @@ do
     _G.RivalsCHT_Aimbot.IsEnabled = function()
         local api = ToggleAPI[aimbotToggle]
         return api and api.Get and api.Get()
+    end
+    -- Allow other parts of the script to trigger/release aim-lock programmatically
+    _G.RivalsCHT_Aimbot.Trigger = function()
+        _G.RivalsCHT_Aimbot.ForceActive = true
+        pcall(function() _G.RivalsCHT_Aimbot.Start() end)
+    end
+    _G.RivalsCHT_Aimbot.Release = function()
+        _G.RivalsCHT_Aimbot.ForceActive = false
+        pcall(function() _G.RivalsCHT_Aimbot.Stop() end)
+    end
+    _G.RivalsCHT_Aimbot.GetPersistentTarget = function()
+        return persistentTarget
+    end
+    _G.RivalsCHT_Aimbot.HasPersistentTarget = function()
+        return persistentTarget ~= nil
+    end
+    _G.RivalsCHT_Aimbot.SetPersistentTarget = function(model)
+        if not model then return end
+        persistentTarget = { model = model, player = Players:GetPlayerFromCharacter(model), lastPos = (model:FindFirstChild("Head") and model:FindFirstChild("Head").Position) or (model.PrimaryPart and model.PrimaryPart.Position), t = tick() }
+        if type(_G) == "table" and _G.RivalsCHT_Aimbot then _G.RivalsCHT_Aimbot.PersistentTarget = persistentTarget end
+    end
+    _G.RivalsCHT_Aimbot.ClearPersistentTarget = function()
+        persistentTarget = nil
+        if type(_G) == "table" and _G.RivalsCHT_Aimbot then _G.RivalsCHT_Aimbot.PersistentTarget = nil end
+    end
+    -- ** Aim Assist API to get if humanoid head is in FOV
+    _G.RivalsCHT_AimAssist = _G.RivalsCHT_AimAssist or {}
+    _G.RivalsCHT_AimAssist.IsHeadInFOV = function(target)
+        local headPos = nil
+        local headInst = nil
+        local Players = game:GetService("Players")
+        if type(target) == "string" then
+            local pl = Players:FindFirstChild(target)
+            if pl and pl.Character then
+                headInst = pl.Character:FindFirstChild("Head") or pl.Character:FindFirstChild("UpperTorso") or pl.Character:FindFirstChild("HumanoidRootPart")
+                if headInst and headInst.Position then headPos = headInst.Position end
+            end
+        elseif typeof(target) == "Instance" then
+            if target:IsA("Model") then
+                headInst = target:FindFirstChild("Head") or target:FindFirstChild("UpperTorso") or target:FindFirstChild("HumanoidRootPart")
+                if headInst and headInst.Position then headPos = headInst.Position end
+            elseif target:IsA("BasePart") then
+                headInst = target
+                headPos = target.Position
+            end
+        elseif typeof(target) == "Vector3" then
+            headPos = target
+        end
+
+        local cam = workspace.CurrentCamera
+        if not cam or not headPos then return false, nil, nil, headInst end
+
+        local p = cam:WorldToViewportPoint(headPos)
+        if not p or p.Z <= 0 then return false, nil, nil, headInst end
+        local vs = cam.ViewportSize
+        local cx, cy = vs.X * 0.5, vs.Y * 0.5
+        local dx = p.X - cx
+        local dy = p.Y - cy
+        local dist = math.sqrt(dx*dx + dy*dy)
+        local inFov = (dist <= (fovMax or 0))
+        return inFov, dist, Vector2.new(p.X, p.Y), headInst
     end
 end
 
@@ -4972,9 +5024,7 @@ do
         end
     end
 
-    -- build flattened list of primitive config keys (dotted paths)
     flatten(Config)
-    -- increase visible lines to at least cover keys (clamped)
     MAX_LINES = math.min(32, math.max(8, #keys))
 
     local function getRuntime(entry)
@@ -4983,7 +5033,6 @@ do
             for _, api in pairs(t) do
                 if type(api) == "table" and api.Get and type(api.Get) == "function" then
                     local v = api.Get()
-                    -- prefer exact type match
                     if entry.cfg == nil then
                         if v ~= nil then return v end
                     else
@@ -4994,7 +5043,6 @@ do
             return nil
         end
 
-        -- first, try ToggleAPI then SliderAPI then KeybindAPI
         local v = tryTable(ToggleAPI)
         if v == nil then v = tryTable(SliderAPI) end
         if v == nil then v = tryTable(KeybindAPI) end
@@ -5005,7 +5053,6 @@ do
         local out = {}
         for _, e in ipairs(keys) do
             local cfgv = e.cfg
-            -- ensure we have the freshest config value
             if GetConfig then cfgv = GetConfig(e.key, nil) end
             local runtime = getRuntime(e)
             table.insert(out, {label = e.label, key = e.key, cfg = cfgv, runtime = runtime})
@@ -5014,7 +5061,6 @@ do
     end
 
     local function makeUI()
-        -- create Drawing overlay (top-right)
         drawBg = Drawing.new("Square")
         drawBg.Filled = true
         drawBg.Color = COLORS.panel
@@ -5037,11 +5083,9 @@ do
             if cam then
                 local vs = cam.ViewportSize
                 local margin = 8
-                -- clamp width so the box never extends off-screen
                 local desiredW = 320
                 local availW = math.max(64, vs.X - margin*2)
                 local w = math.min(desiredW, availW)
-                -- adjust size if needed
                 drawBg.Size = Vector2.new(w, drawBg.Size.Y)
                 local x = vs.X - margin - w - SHIFT_LEFT
                 local y = margin
@@ -5071,23 +5115,18 @@ do
             local runv = v.runtime
 
             if cfgv == nil and runv == nil then
-                -- nothing to report
 
             elseif cfgv == nil and runv ~= nil then
-                -- not saved in config, but runtime has a value
                 push(string.format("%s not present in config; runtime is %s", v.label, fmt(runv)))
 
             else
-                -- config has a saved value (cfgv ~= nil)
                 if runv == nil then
                     push(string.format("%s is %s in config, but not present at runtime", v.label, fmt(cfgv)))
                 else
-                    -- try strict equality first
                     local same = false
                     if type(cfgv) == type(runv) and cfgv == runv then
                         same = true
                     else
-                        -- fallback to string comparison for equivalent representations
                         if tostring(cfgv) == tostring(runv) then same = true end
                     end
 
@@ -5143,7 +5182,6 @@ do
         end
     end
 
-    -- bind to toggle by scanning ToggleAPI for the toggle labeled "Debug Config"
     do
         local foundApi = nil
         if ToggleAPI then
@@ -5182,6 +5220,300 @@ do
 end
 
 -- ** Debug Config Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Auto Shoot Logic Starts Here ** --
+
+do
+    local RunService = game:GetService("RunService")
+    local Players = game:GetService("Players")
+    local UserInputService = game:GetService("UserInputService")
+
+    local autoConn = nil
+    local firing = false
+    local lastInFov = 0
+    local FOV_MISS_TIMEOUT = 1.5
+
+    local KEY_CONFIG = "combat.enableAutoShootKey"
+    local keyConn = nil
+    
+    local debugLabel = makeDebugLabel("AutoShoot: OFF")
+    local lastDebugMsg = nil
+    local persistentEngaged = false
+    local katanaBlocked = false
+
+    do
+        local keyApi = KeybindAPI[enableAutoShootKeybind]
+        local saved = GetConfig(KEY_CONFIG, "Y")
+        pcall(function()
+            if keyApi and type(saved) == "string" and Enum.KeyCode[saved] then keyApi.Set(Enum.KeyCode[saved]) end
+        end)
+        if keyApi then
+            keyApi.OnBind = function(k)
+                local name = nil
+                if typeof(k) == "EnumItem" then name = k.Name elseif type(k) == "string" then name = tostring(k) end
+                if name then SetConfig(KEY_CONFIG, name) end
+            end
+        end
+    end
+
+    local function isHeadInFOV(headInst)
+        if not headInst or not headInst.Position then return false, nil end
+        local cam = workspace.CurrentCamera
+        if not cam then return false, nil end
+        local p = cam:WorldToViewportPoint(headInst.Position)
+        if not p or p.Z <= 0 then return false, nil end
+        local vs = cam.ViewportSize
+        local cx, cy = vs.X * 0.5, vs.Y * 0.5
+        local dx = p.X - cx
+        local dy = p.Y - cy
+        local dist = math.sqrt(dx*dx + dy*dy)
+        local fovRadius = GetConfig("combat.aimbotFOV", 700) or 700
+        return (dist <= fovRadius), dist
+    end
+
+    local function isHoldingKatana(playerOrNil)
+        if not playerOrNil then return false end
+        if type(_G) == "table" and _G.RivalsCHTUI and _G.RivalsCHTUI.ShowEnemyWeapons and type(_G.RivalsCHTUI.ShowEnemyWeapons.GetEnemyHeldWeapon) == "function" then
+            local ok, norm, raw = pcall(function() return _G.RivalsCHTUI.ShowEnemyWeapons.GetEnemyHeldWeapon(playerOrNil) end)
+            if ok then
+                local sraw = (type(raw) == "string") and string.lower(raw) or ""
+                local snorm = (type(norm) == "string") and string.lower(norm) or ""
+                if string.find(sraw, "katana") or string.find(snorm, "katana") then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    local function isVisibleToCamera(headInst)
+        if not headInst or not headInst.Parent then return false end
+        local cam = workspace.CurrentCamera
+        if not cam then return false end
+        
+        local rp = RaycastParams.new()
+        rp.FilterType = Enum.RaycastFilterType.Blacklist
+        rp.FilterDescendantsInstances = {headInst.Parent}
+        
+        local origin = cam.CFrame.Position
+        local direction = headInst.Position - origin
+        local ray = workspace:Raycast(origin, direction, rp)
+        
+        if ray and ray.Instance and not ray.Instance:IsDescendantOf(headInst.Parent) then
+            return false
+        end
+        
+        return true
+    end
+
+    local function checkAndFire()
+        local autoShootEnabled = GetConfig("combat.autoShoot", false)
+        if not autoShootEnabled then 
+            if firing then
+                mouse1release()
+                firing = false
+                if _G and _G.RivalsCHT_Aimbot then
+                    _G.RivalsCHT_Aimbot.ForceActive = false
+                    _G.RivalsCHT_Aimbot.Stop()
+                end
+            end
+            if debugLabel then debugLabel.Set("AutoShoot: OFF (disabled)") end
+            return 
+        end
+        
+        local debugMsg = "AutoShoot: Scanning..."
+        local found = nil
+        local persistentEnabled = GetConfig("combat.persistentAimbot", false)
+
+        if not found then
+            for _, pl in ipairs(Players:GetPlayers()) do
+                if pl ~= Players.LocalPlayer then
+                    local isTeam = false
+                    if _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                        isTeam = _G.RivalsCHT_TeamCheck.IsTeammate(pl)
+                    end
+                    if isTeam then continue end
+
+                    local char = pl.Character
+                    if not char then continue end
+
+                    local headInst = char:FindFirstChild("Head") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("HumanoidRootPart")
+                    if not headInst then continue end
+
+                    local inFov, screenDist = isHeadInFOV(headInst)
+
+                    if inFov then
+                        debugMsg = "AutoShoot: " .. pl.Name .. " in FOV (dist=" .. tostring(math.floor(screenDist or 0)) .. ")"
+                        local isVis = isVisibleToCamera(headInst)
+                        if isVis then
+                            found = {player = pl, head = headInst}
+                            debugMsg = "AutoShoot: TARGET LOCKED - " .. pl.Name
+                            break
+                        else
+                            debugMsg = "AutoShoot: " .. pl.Name .. " blocked by geometry"
+                        end
+                    end
+                end
+            end
+        end
+
+        if not found then
+            local persistentEnabled = GetConfig("combat.persistentAimbot", false)
+            if persistentEnabled and _G and _G.RivalsCHT_Aimbot and type(_G.RivalsCHT_Aimbot.GetPersistentTarget) == "function" then
+                local pt = _G.RivalsCHT_Aimbot.GetPersistentTarget()
+                if pt and pt.model and pt.model.Parent then
+                    local headInst = pt.model:FindFirstChild("Head") or pt.model:FindFirstChild("UpperTorso") or pt.model:FindFirstChild("HumanoidRootPart")
+                    if headInst and headInst.Position then
+                        local pl = pt.player or Players:GetPlayerFromCharacter(pt.model)
+                        local isTeam = false
+                        if pl and _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                            isTeam = _G.RivalsCHT_TeamCheck.IsTeammate(pl)
+                        end
+                        if not isTeam then
+                            local isVis = isVisibleToCamera(headInst)
+                            if isVis then
+                                found = {player = pl, head = headInst}
+                                debugMsg = "AutoShoot: PERSISTENT TARGET LOCKED (out of FOV)"
+                                if persistentEnabled and _G and _G.RivalsCHT_Aimbot and not persistentEngaged then
+                                    persistentEngaged = true
+                                    if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
+                                        _G.RivalsCHT_Aimbot.SetPersistentTarget(headInst.Parent)
+                                    end
+                                    if type(_G.RivalsCHT_Aimbot.Trigger) == "function" then
+                                        _G.RivalsCHT_Aimbot.Trigger()
+                                    end
+                                end
+                            else
+                                if firing then
+                                    mouse1release()
+                                    firing = false
+                                    if _G and _G.RivalsCHT_Aimbot then
+                                        _G.RivalsCHT_Aimbot.ForceActive = false
+                                        _G.RivalsCHT_Aimbot.Stop()
+                                    end
+                                end
+                                debugMsg = "AutoShoot: Persistent target blocked by geometry"
+                            end
+                        else
+                            debugMsg = "AutoShoot: Persistent target is teammate"
+                        end
+                    end
+                end
+            end
+        end
+
+        if found then
+            lastInFov = tick()
+            -- ** aimlock only if enemy is holding katana
+            local holdingKat = false
+            pcall(function() holdingKat = isHoldingKatana(found.player) end)
+            if holdingKat then
+                katanaBlocked = true
+                debugMsg = "AutoShoot: Target has Katana — Aim lock only: " .. (found.player and found.player.Name or "unknown")
+                if _G and _G.RivalsCHT_Aimbot then
+                    if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
+                        pcall(function() _G.RivalsCHT_Aimbot.SetPersistentTarget(found.head.Parent) end)
+                        persistentEngaged = true
+                    end
+                    if type(_G.RivalsCHT_Aimbot.Trigger) == "function" then
+                        pcall(_G.RivalsCHT_Aimbot.Trigger)
+                    else
+                        _G.RivalsCHT_Aimbot.ForceActive = true
+                        pcall(function() _G.RivalsCHT_Aimbot.Start() end)
+                    end
+                end
+                if firing then mouse1release(); firing = false end
+            else
+                katanaBlocked = false
+                if not firing then
+                    firing = true
+                    debugMsg = "AutoShoot: FIRING at " .. found.player.Name
+                    if _G and _G.RivalsCHT_Aimbot then
+                        _G.RivalsCHT_Aimbot.ForceActive = true
+                        _G.RivalsCHT_Aimbot.Start()
+                    end
+                    mouse1press()
+                else
+                    debugMsg = "AutoShoot: Holding fire on " .. found.player.Name
+                end
+            end
+        else
+            if firing then
+                mouse1release()
+                firing = false
+                debugMsg = "AutoShoot: Released fire"
+                if _G and _G.RivalsCHT_Aimbot then
+                    _G.RivalsCHT_Aimbot.ForceActive = false
+                    _G.RivalsCHT_Aimbot.Stop()
+                end
+                if persistentEngaged then
+                    persistentEngaged = false
+                    if _G and _G.RivalsCHT_Aimbot and type(_G.RivalsCHT_Aimbot.ClearPersistentTarget) == "function" then
+                        _G.RivalsCHT_Aimbot.ClearPersistentTarget()
+                    end
+                end
+            else
+                debugMsg = "AutoShoot: Waiting for target"
+            end
+        end
+        
+        if debugLabel and debugMsg ~= lastDebugMsg then debugLabel.Set(debugMsg) lastDebugMsg = debugMsg end
+    end
+
+    pcall(function()
+        keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+            local bound = GetConfig(KEY_CONFIG, "Y")
+            local target = bound and Enum.KeyCode[bound]
+            if target and input.KeyCode == target then
+                local currentState = GetConfig("combat.autoShoot", false)
+                local newState = not currentState
+                SetConfig("combat.autoShoot", newState)
+                local api = ToggleAPI[autoShootToggle]
+                if api and api.Set then api.Set(newState) end
+            end
+        end)
+    end)
+
+    local api = ToggleAPI[autoShootToggle]
+    if api then
+        pcall(function()
+            if api.Get and api.Get() and not autoConn then autoConn = RunService.Heartbeat:Connect(checkAndFire) end
+        end)
+        local prev = api.OnToggle
+        api.OnToggle = function(state)
+            if prev then pcall(prev, state) end
+            if state then
+                if not autoConn then autoConn = RunService.Heartbeat:Connect(checkAndFire) end
+                if debugLabel then debugLabel.Set("AutoShoot: ON") end
+            else
+                if autoConn then autoConn:Disconnect() autoConn = nil end
+                if firing then mouse1release() firing = false end
+                if _G and _G.RivalsCHT_Aimbot then
+                    _G.RivalsCHT_Aimbot.ForceActive = false
+                    pcall(function() _G.RivalsCHT_Aimbot.Stop() end)
+                    if type(_G.RivalsCHT_Aimbot.ClearPersistentTarget) == "function" then
+                        pcall(_G.RivalsCHT_Aimbot.ClearPersistentTarget)
+                    end
+                end
+                persistentEngaged = false
+                if debugLabel then debugLabel.Set("AutoShoot: OFF") end
+            end
+        end
+    end
+
+    RegisterUnload(function()
+        if autoConn and autoConn.Disconnect then autoConn:Disconnect() end
+        if keyConn and keyConn.Disconnect then keyConn:Disconnect() end
+        if firing then mouse1release() end
+        if debugLabel and debugLabel.Destroy then debugLabel.Destroy() end
+    end)
+end
+
+-- ** Auto Shoot Logic Ends Here ** --
 
 ---------------------------------------------------------------------------
 
