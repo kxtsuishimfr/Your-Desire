@@ -2421,7 +2421,8 @@ local closeOpenGuiKeybind = makeKeyBindButton(settingsTab.LeftCol, "Close/Open G
 local autoScaleUIToggle = makeToggle(settingsTab.LeftCol, "Auto-Scale UI")
 local warnIfUnsupportedGameToggle = makeToggle(settingsTab.RightCol, "Warn when executing")
 local showNotificationsToggle = makeToggle(settingsTab.RightCol, "Enable Notifications")
-local debugModeToggle = makeToggle(settingsTab.RightCol, "Debug Mode")
+local debugModeToggle = makeToggle(settingsTab.RightCol, "Generic Debug")
+local debugConfigToggle = makeToggle(settingsTab.RightCol, "Debug Config")
 
 
 -- ** Save Settings to Config **
@@ -2430,8 +2431,7 @@ BindToggleToConfig(autoScaleUIToggle, "settings.autoScaleUI", false)
 BindToggleToConfig(warnIfUnsupportedGameToggle, "settings.warnIfUnsupportedGame", true)
 BindToggleToConfig(showNotificationsToggle, "settings.enableNotifications", true)
 BindToggleToConfig(debugModeToggle, "settings.debugMode", false)
-
-
+BindToggleToConfig(debugConfigToggle, "settings.debugConfig", false)
 ---------------------------------------------------------------------------
 
 -- ** Combat Tab Stuff
@@ -2603,7 +2603,6 @@ _G.RivalsCHTUI.RunUnload = RunUnload
 local WeaponDefs = {
     -- ** Primary Weapons ** --
 
-    -- ** Assault Rifle ** --
     Assault_Rifle = {
         "AKEY-47",
         "AUG",
@@ -2616,15 +2615,97 @@ local WeaponDefs = {
         "10B Visits"
     },
 
-    -- ** Bow ** --
+    Shotgun = {
+        "Balloon Shotgun",
+        "Hyper Shotgun",
+        "Cactus Shotgun",
+        "Shotkey",
+        "Broomstick",
+        "Wrapped Shotgun",
+        "Glorious Shotgun"
+    },
+
+    Minigun = {
+        "Lasergun 3000",
+        "Pixel Minigun",
+        "Fighter Jet",
+        "Pumpkin Minigun",
+        "Wrapped Minigun"
+    },
+
+    RPG = {
+        "Nuke Launcher",
+        "Spaceship Launcher",
+        "Squid Launcher",
+        "Pencil Launcher"
+    },
+
+    Paintball_Gun = {
+        "Slime Gun",
+        "Boba Gun",
+        "Ketchup Gun"
+    },
+
+    Grenade_Launcher = {
+        "Swashbuckler",
+        "Uranium Launcher",
+        "Gearnade Launcher"
+    },
+
+    Flamethrower = {
+        "Pixel Flamethrower",
+        "Lamethrower",
+        "Glitterthrower"
+    },
+
     Bow = {
-        "Key Bow",
-        "Bat Bow",
-        "Dream Bow",
-        "Frostbite Bow",
-        "Raven Bow",
         "Compound Bow",
-        "Glorious Bow"
+        "Raven Bow",
+        "Dream Bow",
+        "Key"
+    },
+
+    Crossbow = {
+        "Pixel Crossbow",
+        "Harpoon Crossbow",
+        "Violin Crossbow",
+        "Crossbone",
+        "Frostbite Crossbow"
+    },
+
+    Gunblade = {
+        "Hyper Gunblade",
+        "Crude Gunblade",
+        "Gunsaw",
+        "Elf's Gunblade",
+        "Boneblade",
+        "Glorious Gunblade"
+    },
+
+    Burst_Rifle = {
+        "Electro Burst",
+        "Aqua Burst",
+        "FAMAS",
+        "Spectral Burst",
+        "Pine Burst",
+        "Key Rifle"
+    },
+
+    Energy_Rifle = {
+        "Hacker Rifle",
+        "Hydro Rifle",
+        "Void Rifle",
+        "2025 Energy Rifle"
+    },
+
+    Distortion = {
+        "Plasma Distortion",
+        "Magma Distortion",
+        "Cyber Distortion"
+    },
+
+    Permafrost = {
+        "Ice Permafrost"
     },
 
     -- ** Utility Weapons ** --
@@ -2636,10 +2717,8 @@ local WeaponDefs = {
         "Trick Or Treat",
         "DIY Tripmine",
         "Glorious Subspace Tripmine"
-    }
+    },
 }
-
-
 
 
 --------------------------------------------------------------------------
@@ -4508,7 +4587,9 @@ do
     
     local toggleAPI = ToggleAPI[showEnemyWeaponsToggle]
     if toggleAPI then
+        local prev = toggleAPI.OnToggle
         toggleAPI.OnToggle = function(state)
+            if prev then pcall(prev, state) end
             onToggleChanged(state)
         end
     end
@@ -4836,6 +4917,271 @@ end
 
 
 -- ** Sixth Sense Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Debug Config Logic Starts Here ** --
+do
+    local MAX_LINES = 8
+    local REFRESH_RATE = 1.5 -- seconds
+    local collapse = {}
+    local buffer = {}
+    local lastUpdate = 0
+    local visible = false
+    local drawBg = nil
+    local drawText = nil
+    local posConn = nil
+    local SHIFT_LEFT = 400
+    
+    local hbConn
+
+    local function fmt(v)
+        if v == nil then return "nil" end
+        if type(v) == "boolean" then return (v and "on" or "off") end
+        if type(v) == "string" then return v end
+        if type(v) == "number" then return tostring(v) end
+        if typeof and typeof(v) == "EnumItem" then return v.Name end
+        return tostring(v)
+    end
+
+    local keys = {}
+    local function isPrimitive(val)
+        local t = type(val)
+        if t == "boolean" or t == "number" or t == "string" then return true end
+        if typeof and typeof(val) == "EnumItem" then return true end
+        return false
+    end
+
+    local function humanize(key)
+        local lbl = tostring(key):gsub("[_%./]", " ")
+        lbl = lbl:gsub("%s+", " ")
+        lbl = lbl:gsub("^%l", string.upper)
+        return lbl
+    end
+
+    local function flatten(tbl, prefix)
+        prefix = prefix or ""
+        if type(tbl) ~= "table" then return end
+        for k,v in pairs(tbl) do
+            local full = (prefix == "") and tostring(k) or (prefix .. "." .. tostring(k))
+            if isPrimitive(v) then
+                table.insert(keys, { key = full, label = humanize(full), cfg = v })
+            elseif type(v) == "table" then
+                flatten(v, full)
+            end
+        end
+    end
+
+    -- build flattened list of primitive config keys (dotted paths)
+    flatten(Config)
+    -- increase visible lines to at least cover keys (clamped)
+    MAX_LINES = math.min(32, math.max(8, #keys))
+
+    local function getRuntime(entry)
+        local function tryTable(t)
+            if type(t) ~= "table" then return nil end
+            for _, api in pairs(t) do
+                if type(api) == "table" and api.Get and type(api.Get) == "function" then
+                    local v = api.Get()
+                    -- prefer exact type match
+                    if entry.cfg == nil then
+                        if v ~= nil then return v end
+                    else
+                        if type(v) == type(entry.cfg) then return v end
+                    end
+                end
+            end
+            return nil
+        end
+
+        -- first, try ToggleAPI then SliderAPI then KeybindAPI
+        local v = tryTable(ToggleAPI)
+        if v == nil then v = tryTable(SliderAPI) end
+        if v == nil then v = tryTable(KeybindAPI) end
+        return v
+    end
+
+    local function scanConfig()
+        local out = {}
+        for _, e in ipairs(keys) do
+            local cfgv = e.cfg
+            -- ensure we have the freshest config value
+            if GetConfig then cfgv = GetConfig(e.key, nil) end
+            local runtime = getRuntime(e)
+            table.insert(out, {label = e.label, key = e.key, cfg = cfgv, runtime = runtime})
+        end
+        return out
+    end
+
+    local function makeUI()
+        -- create Drawing overlay (top-right)
+        drawBg = Drawing.new("Square")
+        drawBg.Filled = true
+        drawBg.Color = COLORS.panel
+        drawBg.Transparency = 0.04
+        drawBg.Size = Vector2.new(320, 24 + MAX_LINES * 18)
+        drawBg.Visible = false
+        drawBg.ZIndex = 9998
+
+        drawText = Drawing.new("Text")
+        drawText.Size = 14
+        drawText.Color = COLORS.text
+        drawText.Outline = true
+        drawText.Center = false
+        drawText.Text = ""
+        drawText.Visible = false
+        drawText.ZIndex = 9999
+
+        posConn = RunService.RenderStepped:Connect(function()
+            local cam = workspace.CurrentCamera
+            if cam then
+                local vs = cam.ViewportSize
+                local margin = 8
+                -- clamp width so the box never extends off-screen
+                local desiredW = 320
+                local availW = math.max(64, vs.X - margin*2)
+                local w = math.min(desiredW, availW)
+                -- adjust size if needed
+                drawBg.Size = Vector2.new(w, drawBg.Size.Y)
+                local x = vs.X - margin - w - SHIFT_LEFT
+                local y = margin
+                if x < 0 then x = margin end
+                drawBg.Position = Vector2.new(x, y)
+                drawText.Position = Vector2.new(x + 8, y + 2)
+            else
+                drawBg.Position = Vector2.new(400, 8)
+                drawText.Position = Vector2.new(408, 10)
+            end
+        end)
+    end
+
+    local function push(msg)
+        if not msg then return end
+        if buffer[#buffer] == msg then
+            collapse[msg] = (collapse[msg] or 1) + 1
+        else
+            table.insert(buffer, msg)
+        end
+        while #buffer > MAX_LINES do table.remove(buffer, 1) end
+    end
+
+    local function buildMessages(list)
+        for _, v in ipairs(list) do
+            local cfgv = v.cfg
+            local runv = v.runtime
+
+            if cfgv == nil and runv == nil then
+                -- nothing to report
+
+            elseif cfgv == nil and runv ~= nil then
+                -- not saved in config, but runtime has a value
+                push(string.format("%s not present in config; runtime is %s", v.label, fmt(runv)))
+
+            else
+                -- config has a saved value (cfgv ~= nil)
+                if runv == nil then
+                    push(string.format("%s is %s in config, but not present at runtime", v.label, fmt(cfgv)))
+                else
+                    -- try strict equality first
+                    local same = false
+                    if type(cfgv) == type(runv) and cfgv == runv then
+                        same = true
+                    else
+                        -- fallback to string comparison for equivalent representations
+                        if tostring(cfgv) == tostring(runv) then same = true end
+                    end
+
+                    if same then
+                        push(string.format("%s is %s in config and runtime (ok)", v.label, fmt(cfgv)))
+                    else
+                        push(string.format("%s is %s in config, but runtime is %s ; config didn't apply", v.label, fmt(cfgv), fmt(runv)))
+                    end
+                end
+            end
+        end
+    end
+
+    local function render()
+        if not drawText then return end
+        local lines = {}
+        for i, s in ipairs(buffer) do
+            local cnt = collapse[s]
+            if cnt and cnt > 1 then
+                s = string.format("%s  (x%d)", s, cnt)
+            end
+            table.insert(lines, s)
+        end
+        local text = (#lines > 0) and table.concat(lines, "\n") or ""
+        drawText.Text = text
+        drawText.Visible = text ~= ""
+        drawBg.Visible = drawText.Visible
+    end
+
+    local function refresh()
+        local now = tick()
+        if now - lastUpdate < REFRESH_RATE then return end
+        lastUpdate = now
+        collapse = {}
+        buffer = {}
+        local list = scanConfig()
+        buildMessages(list)
+        render()
+    end
+
+    local function show(b)
+        if b and not drawText then makeUI() end
+        if drawText then drawText.Visible = b end
+        if drawBg then drawBg.Visible = b end
+        visible = b
+        if b and not hbConn then
+            hbConn = RunService.Heartbeat:Connect(function()
+                refresh()
+            end)
+        elseif not b and hbConn then
+            hbConn:Disconnect()
+            hbConn = nil
+        end
+    end
+
+    -- bind to toggle by scanning ToggleAPI for the toggle labeled "Debug Config"
+    do
+        local foundApi = nil
+        if ToggleAPI then
+            for frame, api in pairs(ToggleAPI) do
+                if frame and type(frame) == "userdata" and frame:IsA("Frame") then
+                    for _, child in ipairs(frame:GetChildren()) do
+                        if child:IsA("TextLabel") and child.Text == "Debug Config" then
+                            foundApi = api
+                            break
+                        end
+                    end
+                end
+                if foundApi then break end
+            end
+        end
+
+        if foundApi then
+            local prev = foundApi.OnToggle
+            foundApi.OnToggle = function(state)
+                if prev then prev(state) end
+                show(not not state)
+            end
+            if foundApi.Get and foundApi.Get() then show(true) else show(false) end
+        else
+            -- fallback to config value only
+            if GetConfig and GetConfig("settings.debugConfig", false) then show(true) end
+        end
+    end
+
+    RegisterUnload(function()
+        if hbConn and hbConn.Disconnect then hbConn:Disconnect() end
+        if posConn and posConn.Disconnect then posConn:Disconnect() end
+        if drawText and drawText.Remove then drawText:Remove() end
+        if drawBg and drawBg.Remove then drawBg:Remove() end
+    end)
+end
+
+-- ** Debug Config Logic Ends Here ** --
 
 ---------------------------------------------------------------------------
 
