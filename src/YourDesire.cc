@@ -1847,14 +1847,17 @@ local function makeDebugLabel(initialText)
     txt.Size = 16
     txt.Color = Color3.new(1, 1, 1)
     txt.Position = Vector2.new(8, 8 + makeDebugLabel_offset)
-    txt.Visible = true
+    txt.Visible = false
     txt.Center = false
     txt.Outline = true
     txt.ZIndex = 10
     makeDebugLabel_offset = makeDebugLabel_offset + 28
 
     local api = {}
-    api.Set = function(text) txt.Text = tostring(text or "") end
+    api.Set = function(text) 
+        txt.Text = tostring(text or "")
+        txt.Visible = GetConfig("settings.debugMode", false) or false
+    end
     api.Show = function(v) txt.Visible = not not v end
     api.Destroy = function() txt:Remove() end
     return api
@@ -2722,6 +2725,18 @@ local WeaponDefs = {
         "DIY Tripmine",
         "Glorious Subspace Tripmine"
     },
+
+    -- ** Melee Weapons ** --
+
+    Riot_Shield = {
+    "Door",
+    "Sled",
+    "Tombstone Shield",
+    "Energy Shield",
+    "Masterpiece",
+    "Glorious Riot Shield"
+},
+
 }
 
 
@@ -4454,6 +4469,8 @@ do
     local labels = {}
     local lastUpdate = 0
     local updateInterval = 0.2
+    local FirstPersonCache = nil
+    local firstPersonCacheTime = 0
 
     local labelContainer = Instance.new("Frame")
     labelContainer.Name = "EnemyWeaponLabels"
@@ -4675,11 +4692,30 @@ do
         return out
     end
 
+    local function GetLocalPlayerHeldWeapon()
+        if not LocalPlayer then return nil end
+        local now = tick()
+        if not FirstPersonCache or (now - firstPersonCacheTime) > 0.2 then
+            FirstPersonCache = ViewModels:FindFirstChild("FirstPerson")
+            firstPersonCacheTime = now
+        end
+        if not FirstPersonCache then return nil end
+        for _, child in ipairs(FirstPersonCache:GetChildren()) do
+            if child:IsA("Model") then
+                local raw = extractWeaponName(child.Name)
+                local norm = normalizeWeaponName(raw)
+                return norm, raw, child
+            end
+        end
+        return nil
+    end
+
     pcall(function()
         if type(_G) == "table" and _G.RivalsCHTUI then
             _G.RivalsCHTUI.ShowEnemyWeapons = _G.RivalsCHTUI.ShowEnemyWeapons or {}
             _G.RivalsCHTUI.ShowEnemyWeapons.GetEnemyHeldWeapon = GetEnemyHeldWeapon
             _G.RivalsCHTUI.ShowEnemyWeapons.GetAllEnemyHeldWeapons = GetAllEnemyHeldWeapons
+            _G.RivalsCHTUI.ShowEnemyWeapons.GetLocalPlayerHeldWeapon = GetLocalPlayerHeldWeapon
         end
     end)
 end
@@ -5206,7 +5242,6 @@ do
             end
             if foundApi.Get and foundApi.Get() then show(true) else show(false) end
         else
-            -- fallback to config value only
             if GetConfig and GetConfig("settings.debugConfig", false) then show(true) end
         end
     end
@@ -5282,6 +5317,33 @@ do
                 local snorm = (type(norm) == "string") and string.lower(norm) or ""
                 if string.find(sraw, "katana") or string.find(snorm, "katana") then
                     return true
+                end
+            end
+        end
+        return false
+    end
+
+    local function isHoldingRiotShield(playerOrNil)
+        if not playerOrNil or playerOrNil == Players.LocalPlayer then
+            if type(_G) == "table" and _G.RivalsCHTUI and _G.RivalsCHTUI.ShowEnemyWeapons and type(_G.RivalsCHTUI.ShowEnemyWeapons.GetLocalPlayerHeldWeapon) == "function" then
+                local ok, norm, raw = pcall(function() return _G.RivalsCHTUI.ShowEnemyWeapons.GetLocalPlayerHeldWeapon() end)
+                if ok then
+                    local sraw = (type(raw) == "string") and string.lower(raw) or ""
+                    local snorm = (type(norm) == "string") and string.lower(norm) or ""
+                    if string.find(sraw, "riot shield") or string.find(snorm, "riot shield") or string.find(sraw, "shield") or string.find(snorm, "shield") then
+                        return true
+                    end
+                end
+            end
+        else
+            if type(_G) == "table" and _G.RivalsCHTUI and _G.RivalsCHTUI.ShowEnemyWeapons and type(_G.RivalsCHTUI.ShowEnemyWeapons.GetEnemyHeldWeapon) == "function" then
+                local ok, norm, raw = pcall(function() return _G.RivalsCHTUI.ShowEnemyWeapons.GetEnemyHeldWeapon(playerOrNil) end)
+                if ok then
+                    local sraw = (type(raw) == "string") and string.lower(raw) or ""
+                    local snorm = (type(norm) == "string") and string.lower(norm) or ""
+                    if string.find(sraw, "riot shield") or string.find(snorm, "riot shield") or string.find(sraw, "shield") or string.find(snorm, "shield") then
+                        return true
+                    end
                 end
             end
         end
@@ -5406,12 +5468,25 @@ do
 
         if found then
             lastInFov = tick()
-            -- ** aimlock only if enemy is holding katana
+            local localPlayerHasShield = false
+            pcall(function() localPlayerHasShield = isHoldingRiotShield(Players.LocalPlayer) end)
+
             local holdingKat = false
+            local holdingShield = false
             pcall(function() holdingKat = isHoldingKatana(found.player) end)
-            if holdingKat then
+            pcall(function() holdingShield = isHoldingRiotShield(found.player) end)
+            
+            if holdingKat or holdingShield or localPlayerHasShield then
                 katanaBlocked = true
-                debugMsg = "AutoShoot: Target has Katana — Aim lock only: " .. (found.player and found.player.Name or "unknown")
+                local reason = ""
+                if localPlayerHasShield then
+                    reason = "Local player has Riot Shield"
+                elseif holdingShield then
+                    reason = "Target has Riot Shield"
+                else
+                    reason = "Target has Katana"
+                end
+                debugMsg = "AutoShoot: " .. reason .. " — Aim lock only: " .. (found.player and found.player.Name or "unknown")
                 if _G and _G.RivalsCHT_Aimbot then
                     if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
                         pcall(function() _G.RivalsCHT_Aimbot.SetPersistentTarget(found.head.Parent) end)
@@ -5483,9 +5558,10 @@ do
         pcall(function()
             if api.Get and api.Get() and not autoConn then autoConn = RunService.Heartbeat:Connect(checkAndFire) end
         end)
-        local prev = api.OnToggle
+        local p = api.OnToggle
         api.OnToggle = function(state)
-            if prev then pcall(prev, state) end
+            if type(p) == "function" then p(state) end
+            makeNotification(state and "Auto-Shoot is ON" or "Auto-Shoot is OFF", 3, nil, "AutoShootToggle")
             if state then
                 if not autoConn then autoConn = RunService.Heartbeat:Connect(checkAndFire) end
                 if debugLabel then debugLabel.Set("AutoShoot: ON") end
