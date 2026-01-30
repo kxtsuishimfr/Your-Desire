@@ -2737,6 +2737,16 @@ local WeaponDefs = {
     "Glorious Riot Shield"
 },
 
+-- ** Secondary Weapons ** --
+Spray = {
+        "Bottle Spray",
+        "Boneclaw Spray",
+        "Nail Gun",
+        "Lovely Spray",
+        "Pine Spray",
+        "Glorious Spray"
+    },
+
 }
 
 
@@ -3989,10 +3999,8 @@ do
             if pl ~= Players.LocalPlayer then
                 local ch = pl.Character
                 if ch then
-                        local humanoid = ch:FindFirstChildOfClass("Humanoid")
-                        if humanoid and humanoid.Health and humanoid.Health <= 0 then
-                            continue
-                        end
+                        local okAlive, aliveRes = pcall(function() return _G.RivalsCHT_Aimbot.IsAlive(ch) end)
+                        if not okAlive or not aliveRes then continue end
                         local head = ch:FindFirstChild("Head") or ch:FindFirstChild("HumanoidRootPart")
                         if head and head.Position then
                         local isTeammate = false
@@ -4331,6 +4339,13 @@ do
     end
     -- Allow other parts of the script to trigger/release aim-lock programmatically
     _G.RivalsCHT_Aimbot.Trigger = function()
+        -- validate persistent target is alive before triggering
+        if persistentTarget and persistentTarget.model then
+            if not _G.RivalsCHT_Aimbot.IsAlive(persistentTarget.model) then
+                pcall(function() _G.RivalsCHT_Aimbot.ClearPersistentTarget() end)
+                return
+            end
+        end
         _G.RivalsCHT_Aimbot.ForceActive = true
         pcall(function() _G.RivalsCHT_Aimbot.Start() end)
     end
@@ -4346,8 +4361,36 @@ do
     end
     _G.RivalsCHT_Aimbot.SetPersistentTarget = function(model)
         if not model then return end
+        if not _G.RivalsCHT_Aimbot.IsAlive(model) then return end
         persistentTarget = { model = model, player = Players:GetPlayerFromCharacter(model), lastPos = (model:FindFirstChild("Head") and model:FindFirstChild("Head").Position) or (model.PrimaryPart and model.PrimaryPart.Position), t = tick() }
         if type(_G) == "table" and _G.RivalsCHT_Aimbot then _G.RivalsCHT_Aimbot.PersistentTarget = persistentTarget end
+    end
+
+    _G.RivalsCHT_Aimbot.IsAlive = function(target)
+        local Players = game:GetService("Players")
+        local ok, hum
+        if type(target) == "string" then
+            local pl = Players:FindFirstChild(target)
+            if not pl or not pl.Character then return false end
+            ok, hum = pcall(function() return pl.Character:FindFirstChildOfClass("Humanoid") end)
+        elseif typeof(target) == "Instance" then
+            if target:IsA("Player") or target:IsA("PlayerInstance") then
+                local pl = target
+                if pl.Character then ok, hum = pcall(function() return pl.Character:FindFirstChildOfClass("Humanoid") end) end
+            elseif target:IsA("Model") then
+                ok, hum = pcall(function() return target:FindFirstChildOfClass("Humanoid") end)
+            else
+                return false
+            end
+        elseif type(target) == "table" and target.model then
+            ok, hum = pcall(function() return target.model:FindFirstChildOfClass("Humanoid") end)
+        else
+            return false
+        end
+        if not ok then return false end
+        if not hum then return false end
+        if hum.Health == nil then return true end
+        return (hum.Health > 0)
     end
     _G.RivalsCHT_Aimbot.ClearPersistentTarget = function()
         persistentTarget = nil
@@ -5404,6 +5447,8 @@ do
 
                     local char = pl.Character
                     if not char then continue end
+                    local okAlive, aliveRes = pcall(function() return _G.RivalsCHT_Aimbot.IsAlive(char) end)
+                    if not okAlive or not aliveRes then continue end
 
                     local headInst = char:FindFirstChild("Head") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("HumanoidRootPart")
                     if not headInst then continue end
@@ -5479,8 +5524,18 @@ do
             local holdingShield = false
             pcall(function() holdingKat = isHoldingKatana(found.player) end)
             pcall(function() holdingShield = isHoldingRiotShield(found.player) end)
-            
-            if holdingKat or holdingShield or localPlayerHasShield then
+
+            local holdingSpray = false
+            pcall(function()
+                local norm, raw = GetLocalPlayerHeldWeapon()
+                if norm and string.find(string.lower(norm), "spray") then
+                    holdingSpray = true
+                end
+            end)
+
+            local shouldBlock = (holdingKat or holdingShield or localPlayerHasShield) and not holdingSpray
+
+            if shouldBlock then
                 katanaBlocked = true
                 local reason = ""
                 if localPlayerHasShield then
@@ -5491,6 +5546,7 @@ do
                     reason = "Target has Katana"
                 end
                 debugMsg = "AutoShoot: " .. reason .. " — Aim lock only: " .. (found.player and found.player.Name or "unknown")
+                -- ** now trigger aimlock
                 if _G and _G.RivalsCHT_Aimbot then
                     if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
                         pcall(function() _G.RivalsCHT_Aimbot.SetPersistentTarget(found.head.Parent) end)
@@ -5509,13 +5565,35 @@ do
                 if not firing then
                     firing = true
                     debugMsg = "AutoShoot: FIRING at " .. found.player.Name
+                    -- ** always trigger aimlock when firing
                     if _G and _G.RivalsCHT_Aimbot then
-                        _G.RivalsCHT_Aimbot.ForceActive = true
-                        _G.RivalsCHT_Aimbot.Start()
+                        if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
+                            pcall(function() _G.RivalsCHT_Aimbot.SetPersistentTarget(found.head.Parent) end)
+                            persistentEngaged = true
+                        end
+                        if type(_G.RivalsCHT_Aimbot.Trigger) == "function" then
+                            pcall(_G.RivalsCHT_Aimbot.Trigger)
+                        else
+                            _G.RivalsCHT_Aimbot.ForceActive = true
+                            _G.RivalsCHT_Aimbot.Start()
+                        end
                     end
                     mouse1press()
                 else
                     debugMsg = "AutoShoot: Holding fire on " .. found.player.Name
+                    -- ** always trigger aimlock when holding fire
+                    if _G and _G.RivalsCHT_Aimbot then
+                        if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
+                            pcall(function() _G.RivalsCHT_Aimbot.SetPersistentTarget(found.head.Parent) end)
+                            persistentEngaged = true
+                        end
+                        if type(_G.RivalsCHT_Aimbot.Trigger) == "function" then
+                            pcall(_G.RivalsCHT_Aimbot.Trigger)
+                        else
+                            _G.RivalsCHT_Aimbot.ForceActive = true
+                            _G.RivalsCHT_Aimbot.Start()
+                        end
+                    end
                 end
             end
         else
@@ -5523,21 +5601,33 @@ do
                 mouse1release()
                 firing = false
                 debugMsg = "AutoShoot: Released fire"
+                -- ** always clear aimlock when fire ends
                 if _G and _G.RivalsCHT_Aimbot then
                     _G.RivalsCHT_Aimbot.ForceActive = false
                     _G.RivalsCHT_Aimbot.Stop()
+                    if type(_G.RivalsCHT_Aimbot.ClearPersistentTarget) == "function" then
+                        pcall(_G.RivalsCHT_Aimbot.ClearPersistentTarget)
+                    end
                 end
                 if persistentEngaged then
                     persistentEngaged = false
-                    if _G and _G.RivalsCHT_Aimbot and type(_G.RivalsCHT_Aimbot.ClearPersistentTarget) == "function" then
-                        _G.RivalsCHT_Aimbot.ClearPersistentTarget()
-                    end
                 end
             else
                 debugMsg = "AutoShoot: Waiting for target"
+                -- ** always clear aimlock if not firing
+                if _G and _G.RivalsCHT_Aimbot then
+                    _G.RivalsCHT_Aimbot.ForceActive = false
+                    _G.RivalsCHT_Aimbot.Stop()
+                    if type(_G.RivalsCHT_Aimbot.ClearPersistentTarget) == "function" then
+                        pcall(_G.RivalsCHT_Aimbot.ClearPersistentTarget)
+                    end
+                end
+                if persistentEngaged then
+                    persistentEngaged = false
+                end
             end
-        end
         
+        end
         if debugLabel and debugMsg ~= lastDebugMsg then debugLabel.Set(debugMsg) lastDebugMsg = debugMsg end
     end
 
