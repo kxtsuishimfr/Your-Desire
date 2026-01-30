@@ -3989,8 +3989,12 @@ do
             if pl ~= Players.LocalPlayer then
                 local ch = pl.Character
                 if ch then
-                    local head = ch:FindFirstChild("Head") or ch:FindFirstChild("HumanoidRootPart")
-                    if head and head.Position then
+                        local humanoid = ch:FindFirstChildOfClass("Humanoid")
+                        if humanoid and humanoid.Health and humanoid.Health <= 0 then
+                            continue
+                        end
+                        local head = ch:FindFirstChild("Head") or ch:FindFirstChild("HumanoidRootPart")
+                        if head and head.Position then
                         local isTeammate = false
                         if teamCheckEnabled then
                             local hrp = head
