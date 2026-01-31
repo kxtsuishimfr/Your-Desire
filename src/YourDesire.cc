@@ -348,7 +348,6 @@ local function RefreshRegisteredThemed()
                         end
                     end
                 end
-                -- call custom refresh function if provided
                 if type(e.refresh) == "function" then
                     pcall(e.refresh)
                 end
@@ -396,30 +395,41 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
     local btn = Instance.new("TextButton")
     local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 6) corner.Parent = btn
     btn.Name = name .. "Tab"
-    btn.Size = UDim2.new(0, 120, 0, 32)
+    btn.Size = UDim2.new(1, -12, 0, 32)
     btn.AutoButtonColor = false
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 18
+    btn.TextSize = 16
     btn.Text = name
-    btn.BackgroundColor3 = COLORS.bg
+    btn.BackgroundColor3 = COLORS.panel
     btn.TextColor3 = COLORS.tabText
     btn.BorderSizePixel = 0
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    local btnPad = Instance.new("UIPadding") btnPad.Parent = btn; btnPad.PaddingLeft = UDim.new(0, 12)
+    btn.ZIndex = 10
 
-    -- ** active tab indicator
+    -- ** active tab indicator 
     local indicator = Instance.new("Frame")
     indicator.Name = "ActiveIndicator"
-    indicator.Size = UDim2.new(1, -16, 0, 4)
-    indicator.Position = UDim2.new(0, 8, 1, -10)
+    indicator.Size = UDim2.new(0, 4, 1, -8)
+    indicator.Position = UDim2.new(1, -6, 0, 4)
     indicator.BackgroundColor3 = COLORS.accent
     indicator.BackgroundTransparency = 1
     indicator.ZIndex = btn.ZIndex - 1
-    local indCorner = Instance.new("UICorner") indCorner.CornerRadius = UDim.new(0, 4) indCorner.Parent = indicator
+    local indCorner = Instance.new("UICorner") indCorner.CornerRadius = UDim.new(0, 2) indCorner.Parent = indicator
     indicator.Parent = btn
 
     local page = Instance.new("Frame")
     page.Name = name .. "Page"
     page.Size = UDim2.new(1,0,1,0)
     page.BackgroundTransparency = 1
+    local pageLayout = Instance.new("UIListLayout") pageLayout.Parent = page
+    pageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    pageLayout.Padding = UDim.new(0, 0)
+    local pagePad = Instance.new("UIPadding") pagePad.Parent = page
+    pagePad.PaddingLeft = UDim.new(0, 8)
+    pagePad.PaddingRight = UDim.new(0, 8)
+    pagePad.PaddingTop = UDim.new(0, 8)
+    pagePad.PaddingBottom = UDim.new(0, 8)
 
     if tabsParent then btn.Parent = tabsParent end
     RegisterThemed(btn, function()
@@ -447,19 +457,7 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
         end)
     end)
 
-    if tabsParent then
-        pcall(function()
-            local btnWidth = 120
-            local spacing = 8
-            local idx = 0
-            for _,c in ipairs(tabsParent:GetChildren()) do
-                if c:IsA("TextButton") and c ~= btn then
-                    idx = idx + 1
-                end
-            end
-            btn.Position = UDim2.new(0, idx * (btnWidth + spacing), 0, 6)
-        end)
-    end
+
 
 
     btn.MouseButton1Click:Connect(function()
@@ -482,72 +480,86 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
 
 -- ** Col Stuff
 
-    -- ** Left col
+    -- ** Left col (top)
     local leftCol = Instance.new("Frame")
     leftCol.Name = "LeftCol"
-    leftCol.Size = UDim2.new(0.5, -12, 1, -12)
-    leftCol.Position = UDim2.new(0, 8, 0, 8)
-    leftCol.BackgroundColor3 = COLORS.panel
+    leftCol.Size = UDim2.new(1, 0, 0, 0)
+    leftCol.BackgroundTransparency = 1
     leftCol.Parent = page
+    leftCol.AutomaticSize = Enum.AutomaticSize.Y
+    leftCol.LayoutOrder = 0
     RegisterThemed(leftCol)
-    leftCol.ClipsDescendants = true
+    leftCol.ClipsDescendants = false
     local list = Instance.new("UIListLayout") list.Parent = leftCol
     list.SortOrder = Enum.SortOrder.LayoutOrder
+    list.Padding = UDim.new(0, 8)
+    local leftPad = Instance.new("UIPadding") leftPad.Parent = leftCol
+    leftPad.PaddingLeft = UDim.new(0, 10)
+    leftPad.PaddingRight = UDim.new(0, 10)
+    leftPad.PaddingTop = UDim.new(0, 8)
+    leftPad.PaddingBottom = UDim.new(0, 8)
 
     -- ** Header for left col
     if colHeaders and colHeaders.Left then
         local hdr = Instance.new("TextLabel")
         hdr.Name = "Header"
-        hdr.Size = UDim2.new(1, -12, 0, 24)
-        hdr.Position = UDim2.new(0, 6, 0, 6)
+        hdr.Size = UDim2.new(1, 0, 0, 20)
         hdr.BackgroundTransparency = 1
         hdr.Font = Enum.Font.GothamBold
-        hdr.TextSize = 16
+        hdr.TextSize = 14
         hdr.Text = tostring(colHeaders.Left)
-        hdr.TextColor3 = COLORS.textDim
+        hdr.TextColor3 = COLORS.accent
         hdr.TextXAlignment = Enum.TextXAlignment.Left
         hdr.LayoutOrder = 0
         hdr.Parent = leftCol
     end
 
 
-    -- ** Right col
+    -- ** Right col (bottom)
     local rightCol = Instance.new("Frame")
     rightCol.Name = "RightCol"
-    rightCol.Size = UDim2.new(0.5, -12, 1, -12)
-    rightCol.Position = UDim2.new(0.5, 8, 0, 8)
-    rightCol.BackgroundColor3 = COLORS.panel
+    rightCol.Size = UDim2.new(1, 0, 0, 0)
+    rightCol.BackgroundTransparency = 1
     rightCol.Parent = page
+    rightCol.AutomaticSize = Enum.AutomaticSize.Y
+    rightCol.LayoutOrder = 2
     RegisterThemed(rightCol)
-    rightCol.ClipsDescendants = true
+    rightCol.ClipsDescendants = false
     local list2 = Instance.new("UIListLayout") list2.Parent = rightCol
     list2.SortOrder = Enum.SortOrder.LayoutOrder
+    list2.Padding = UDim.new(0, 8)
+    local rightPad = Instance.new("UIPadding") rightPad.Parent = rightCol
+    rightPad.PaddingLeft = UDim.new(0, 10)
+    rightPad.PaddingRight = UDim.new(0, 10)
+    rightPad.PaddingTop = UDim.new(0, 8)
+    rightPad.PaddingBottom = UDim.new(0, 8)
 
     -- ** Header for right col
     if colHeaders and colHeaders.Right then
         local hdrr = Instance.new("TextLabel")
         hdrr.Name = "Header"
-        hdrr.Size = UDim2.new(1, -12, 0, 24)
-        hdrr.Position = UDim2.new(0, 6, 0, 6)
+        hdrr.Size = UDim2.new(1, 0, 0, 20)
         hdrr.BackgroundTransparency = 1
         hdrr.Font = Enum.Font.GothamBold
-        hdrr.TextSize = 16
+        hdrr.TextSize = 14
         hdrr.Text = tostring(colHeaders.Right)
-        hdrr.TextColor3 = COLORS.textDim
+        hdrr.TextColor3 = COLORS.accent
         hdrr.TextXAlignment = Enum.TextXAlignment.Left
-        hdrr.LayoutOrder = 0
+        hdrr.LayoutOrder = 1
         hdrr.Parent = rightCol
     end
 
-    -- ** vertical divider between cols
+    -- ** Horizontal divider between cols
     local divider = Instance.new("Frame")
     divider.Name = "Divider"
-    divider.Size = UDim2.new(0, 2, 1, -16)
-    divider.Position = UDim2.new(0.5, -1, 0, 8)
+    divider.Size = UDim2.new(1, 0, 0, 1)
     divider.BackgroundColor3 = COLORS.divider
     divider.Parent = page
+    divider.BorderSizePixel = 0
+    divider.LayoutOrder = 1
     RegisterThemed(divider)
-    local divCorner = Instance.new("UICorner") divCorner.CornerRadius = UDim.new(0,1) divCorner.Parent = divider
+    divider.AnchorPoint = Vector2.new(0, 0.5)
+    RegisterThemed(divider)
 
     local tab = {
         button = btn,
@@ -690,7 +702,6 @@ local function makeToggle(parent, labelText)
     innerCorner.CornerRadius = UDim.new(1, 0)
     innerCorner.Parent = inner
 
-    -- register the frame-level refresh AFTER children exist (so snapshot includes children and refresh sees variables)
     RegisterThemed(frame, function()
         pcall(function()
             local api = ToggleAPI[frame]
@@ -699,7 +710,6 @@ local function makeToggle(parent, labelText)
             local bgColor = COLORS.bg or COLORS.panel or surfaceColor
             local lightStroke = (COLORS.panel or COLORS.bg):Lerp(COLORS.text, 0.18)
             local accentVisible = (COLORS.accent or COLORS.text):Lerp(COLORS.white or Color3.new(1,1,1), 0.18)
-            -- update visuals
             if label then label.TextColor3 = COLORS.text end
             if fill then fill.BackgroundColor3 = accentVisible end
             if kStroke then kStroke.Color = (COLORS.panel or COLORS.bg):Lerp(COLORS.text, 0.14) end
@@ -1074,6 +1084,146 @@ local function makeButton(parent, labelText)
 end
 
 --------------------------------------------------------------------------
+
+-- ** Collapsible group helper
+local TweenService = game:GetService("TweenService")
+local function makeCollapsibleGroup(parent, title, defaultOpen, builderFn)
+    local headerHeight = 36
+    local extraWidth = 8 
+    local extraX = -10 
+    local grp = Instance.new("Frame")
+    grp.Name = tostring(title or "Group")
+    grp.BackgroundTransparency = 1
+    grp.Size = UDim2.new(1, extraWidth, 0, headerHeight)
+    grp.Position = UDim2.new(0, extraX, 0, 0)
+    grp.Parent = parent
+
+    local header = Instance.new("TextButton")
+    header.Size = UDim2.new(1, 0, 0, headerHeight)
+    header.Position = UDim2.new(0,0,0,0)
+    header.BackgroundColor3 = COLORS.panelAlt or COLORS.panel
+    header.AutoButtonColor = false
+    header.Font = Enum.Font.GothamBold
+    header.TextSize = 18
+    header.Text = tostring(title or "Group")
+    header.TextXAlignment = Enum.TextXAlignment.Left
+    header.TextColor3 = COLORS.text
+    header.Parent = grp
+    header.ZIndex = 50
+    local hp = Instance.new("UIPadding") hp.Parent = header hp.PaddingLeft = UDim.new(0,12); hp.PaddingRight = UDim.new(0,28)
+    local hcorner = Instance.new("UICorner") hcorner.CornerRadius = UDim.new(0,6) hcorner.Parent = header
+    local hstroke = Instance.new("UIStroke") hstroke.Parent = header hstroke.Color = COLORS.panelStroke or COLORS.panel
+    RegisterThemed(header)
+
+    local caret = Instance.new("TextLabel")
+    caret.Size = UDim2.new(0, 18, 0, 18)
+    caret.AnchorPoint = Vector2.new(1, 0.5)
+    caret.Position = UDim2.new(1, -12, 0.5, 0)
+    caret.BackgroundTransparency = 1
+    caret.Font = Enum.Font.Gotham
+    caret.TextSize = 16
+    caret.Text = "▾"
+    caret.TextColor3 = COLORS.textDim
+    caret.ZIndex = header.ZIndex + 1
+    caret.Parent = header
+    RegisterThemed(caret)
+
+    local bodyClip = Instance.new("Frame")
+    bodyClip.Name = "BodyClip"
+    bodyClip.BackgroundTransparency = 1
+    bodyClip.Position = UDim2.new(0,0,0,headerHeight)
+    bodyClip.Size = UDim2.new(1,0,0,0)
+    bodyClip.ClipsDescendants = true
+    bodyClip.Parent = grp
+
+    local inner = Instance.new("Frame")
+    inner.Name = "Inner"
+    inner.BackgroundTransparency = 1
+    inner.Size = UDim2.new(1,0,0,0)
+    inner.AutomaticSize = Enum.AutomaticSize.Y
+    inner.Parent = bodyClip
+
+    local innerLayout = Instance.new("UIListLayout") innerLayout.Parent = inner
+    innerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    innerLayout.Padding = UDim.new(0,6)
+    local innerPad = Instance.new("UIPadding") innerPad.Parent = inner
+    innerPad.PaddingLeft = UDim.new(0,4); innerPad.PaddingRight = UDim.new(0,4); innerPad.PaddingTop = UDim.new(0,8); innerPad.PaddingBottom = UDim.new(0,8)
+    RegisterThemed(inner)
+
+    if type(builderFn) == "function" then
+        pcall(builderFn, inner)
+    end
+
+    local opened = not not defaultOpen
+    local tweenInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+    local function refreshSizes()
+        local contentH = innerLayout.AbsoluteContentSize.Y
+        if opened then
+            grp.Size = UDim2.new(1, extraWidth, 0, headerHeight + contentH)
+            bodyClip.Size = UDim2.new(1,0,0, contentH)
+            caret.Text = "▾"
+            caret.Rotation = 0
+        else
+            grp.Size = UDim2.new(1, extraWidth, 0, headerHeight)
+            bodyClip.Size = UDim2.new(1,0,0,0)
+            caret.Text = "▸"
+            caret.Rotation = -90
+        end
+    end
+
+    task.defer(refreshSizes)
+
+    local function setOpen(open)
+        opened = not not open
+        local contentH = innerLayout.AbsoluteContentSize.Y
+        if opened then
+            TweenService:Create(grp, tweenInfo, {Size = UDim2.new(1, extraWidth, 0, headerHeight + contentH)}):Play()
+            TweenService:Create(bodyClip, tweenInfo, {Size = UDim2.new(1,0,0, contentH)}):Play()
+            TweenService:Create(caret, tweenInfo, {Rotation = 0}):Play()
+            caret.Text = "▾"
+        else
+            TweenService:Create(grp, tweenInfo, {Size = UDim2.new(1, extraWidth, 0, headerHeight)}):Play()
+            TweenService:Create(bodyClip, tweenInfo, {Size = UDim2.new(1,0,0,0)}):Play()
+            TweenService:Create(caret, tweenInfo, {Rotation = -90}):Play()
+            caret.Text = "▸"
+        end
+        if bottomDivider then
+            if opened then
+                pcall(function() TweenService:Create(bottomDivider, tweenInfo, {BackgroundTransparency = 0}):Play() end)
+            else
+                pcall(function() TweenService:Create(bottomDivider, tweenInfo, {BackgroundTransparency = 1}):Play() end)
+            end
+        end
+    end
+
+    header.MouseButton1Click:Connect(function()
+        setOpen(not opened)
+    end)
+
+    local bottomDivider = Instance.new("Frame")
+    bottomDivider.Name = "BottomDivider"
+    bottomDivider.Size = UDim2.new(1, 0, 0, 1)
+    bottomDivider.Position = UDim2.new(0, 0, 1, 6)
+    bottomDivider.AnchorPoint = Vector2.new(0, 1)
+    bottomDivider.BackgroundColor3 = COLORS.divider or (COLORS.panel or COLORS.bg)
+    bottomDivider.BorderSizePixel = 0
+    bottomDivider.ZIndex = 1
+    bottomDivider.Parent = grp
+    bottomDivider.BackgroundTransparency = (opened and 0 or 1)
+    RegisterThemed(bottomDivider, function()
+        pcall(function() bottomDivider.BackgroundColor3 = COLORS.divider or (COLORS.panel or COLORS.bg) end)
+    end)
+
+    return {
+        SetOpen = setOpen,
+        Toggle = function() setOpen(not opened) end,
+        Add = function(fn) if type(fn) == "function" then pcall(fn, inner) end end,
+        Header = header,
+        Body = inner,
+        Frame = grp,
+    }
+end
 
 -- ** makeSlider
 
@@ -2036,10 +2186,19 @@ local rootCorner = Instance.new("UICorner") rootCorner.Parent = root
 RegisterThemed(root)
 
 local tabsBar = Instance.new("Frame")
-tabsBar.Size = UDim2.new(1,0,0,40)
-tabsBar.Position = UDim2.new(0,0,0,0)
-tabsBar.BackgroundTransparency = 1
+tabsBar.Size = UDim2.new(0, 160, 1, 0)
+tabsBar.Position = UDim2.new(0, 0, 0, 0)
+tabsBar.BackgroundColor3 = COLORS.panel
 tabsBar.Parent = root
+local tabsBarCorner = Instance.new("UICorner") tabsBarCorner.CornerRadius = UDim.new(0, 6) tabsBarCorner.Parent = tabsBar
+local tabsBarLayout = Instance.new("UIListLayout") tabsBarLayout.Parent = tabsBar
+tabsBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tabsBarLayout.Padding = UDim.new(0, 6)
+local tabsBarPad = Instance.new("UIPadding") tabsBarPad.Parent = tabsBar
+tabsBarPad.PaddingTop = UDim.new(0, 8)
+tabsBarPad.PaddingLeft = UDim.new(0, 6)
+tabsBarPad.PaddingRight = UDim.new(0, 6)
+RegisterThemed(tabsBar)
 
 ------------ Break for Dragable ------------
 tabsBar.Active = true
@@ -2078,16 +2237,22 @@ end
 
 ------------ Continue ------------
 
-local pages = Instance.new("Frame")
-pages.Size = UDim2.new(1,0,1,-40)
-pages.Position = UDim2.new(0,0,0,40)
+local pages = Instance.new("ScrollingFrame")
+pages.Name = "Pages"
+pages.Size = UDim2.new(1, -160, 1, 0)
+pages.Position = UDim2.new(0, 160, 0, 0)
 pages.BackgroundTransparency = 1
+pages.ScrollBarThickness = 10
+pages.AutomaticCanvasSize = Enum.AutomaticSize.Y
+pages.CanvasSize = UDim2.new(0, 0, 0, 0)
+pages.ClipsDescendants = true
 pages.Parent = root
+RegisterThemed(pages)
 
 local tabsUnderlay = Instance.new("Frame")
 tabsUnderlay.Name = "TabsUnderlay"
-tabsUnderlay.Size = UDim2.new(1, -16, 0, 10)
-tabsUnderlay.Position = UDim2.new(0, 8, 0, 40)
+tabsUnderlay.Size = UDim2.new(0, 160, 1, 0)
+tabsUnderlay.Position = UDim2.new(0, 0, 0, 0)
 tabsUnderlay.BackgroundColor3 = COLORS.panel
 tabsUnderlay.Parent = root
 local tabsUnderCorner = Instance.new("UICorner") tabsUnderCorner.CornerRadius = UDim.new(0,4) tabsUnderCorner.Parent = tabsUnderlay
@@ -2439,28 +2604,29 @@ BindToggleToConfig(debugConfigToggle, "settings.debugConfig", false)
 
 -- ** Combat Tab Stuff
 
-local aimbotToggle = makeToggle(combatTab.LeftCol, "Aimbot")
-local enableAimbotKeybind = makeKeyBindButton(combatTab.LeftCol, "Enable Aimbot", Enum.KeyCode.V)
-
 local initialSmoothing = GetConfig("combat.aimbotSmoothing", 1) or 1
 local initialAimbotFOV = GetConfig("combat.aimbotFOV", 700) or 700
 
-local useAimbotSmoothingToggle = makeToggle(combatTab.RightCol, "Use Aimbot Smoothing")
-local smoothingSlider = makeSlider(combatTab.RightCol, "Aimbot Smooth", 1, 100, initialSmoothing)
-local aimbotFOVSlider = makeSlider(combatTab.RightCol, "Aimbot FOV", 1, 1000, initialAimbotFOV)
+local aimbotToggle, enableAimbotKeybind, useAimbotSmoothingToggle, smoothingSlider, aimbotFOVSlider, aimLockKeybind, aimPredictionToggle, persistentAimbotToggle
+
+local aimbotGroup = makeCollapsibleGroup(combatTab.LeftCol, "Aimbot", false, function(parent)
+    aimbotToggle = makeToggle(parent, "Aimbot")
+    enableAimbotKeybind = makeKeyBindButton(parent, "Enable Aimbot", Enum.KeyCode.V)
+    persistentAimbotToggle = makeToggle(parent, "Persistent Aimbot")
+    useAimbotSmoothingToggle = makeToggle(parent, "Use Aimbot Smoothing")
+    smoothingSlider = makeSlider(parent, "Aimbot Smooth", 1, 100, initialSmoothing)
+    aimbotFOVSlider = makeSlider(parent, "Aimbot FOV", 1, 1000, initialAimbotFOV)
+    aimLockKeybind = makeKeyBindButton(parent, "Aim Lock Keybind", Enum.KeyCode.Q)
+    aimPredictionToggle = makeToggle(parent, "Aimbot Prediction")
+end)
+
 local drawFovCircleToggle = makeToggle(combatTab.LeftCol, "Draw FOV Circle")
 local targetBehindWallsToggle = makeToggle(combatTab.LeftCol, "Target Behind Walls")
-local aimLockKeybind = makeKeyBindButton(combatTab.RightCol, "Aim Lock Keybind", Enum.KeyCode.Q)
 local teamCheckToggle = makeToggle(combatTab.LeftCol, "Team Check")
-local aimPredictionToggle = makeToggle(combatTab.RightCol, "Aimbot Prediction")
 local sixthSenseToggle = makeToggle(combatTab.RightCol, "Sixth Sense")
-local persistentAimbotToggle = makeToggle(combatTab.LeftCol, "Persistent Aimbot")
 
 local autoShootToggle = makeToggle(combatTab.LeftCol, "Auto-Shoot")
 local enableAutoShootKeybind = makeKeyBindButton(combatTab.RightCol, "Auto-Shoot Keybind", Enum.KeyCode.Y)
-
-
-
 -- ** Save Combat to Config **
 BindToggleToConfig(aimbotToggle, "combat.aimbot", false)
 BindToggleToConfig(useAimbotSmoothingToggle, "combat.useAimbotSmoothing", false)
