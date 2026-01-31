@@ -2176,8 +2176,9 @@ end
 
 -- ** Build UI
 local root = Instance.new("Frame")
-root.Size = UDim2.new(0, 760, 0, 520)
-root.Position = UDim2.new(0.5, -380, 0.5, -260)
+local bannerHeight = 28
+root.Size = UDim2.new(0, 760, 0, 520 + bannerHeight)
+root.Position = UDim2.new(0.5, -380, 0.5, -260 - (bannerHeight/2))
 root.AnchorPoint = Vector2.new(0.0,0.0)
 root.BackgroundColor3 = COLORS.bg
 root.Parent = gui
@@ -2185,10 +2186,10 @@ local rootCorner = Instance.new("UICorner") rootCorner.Parent = root
 
 RegisterThemed(root)
 
-local tabsBar = Instance.new("Frame")
-tabsBar.Size = UDim2.new(0, 160, 1, 0)
-tabsBar.Position = UDim2.new(0, 0, 0, 0)
-tabsBar.BackgroundColor3 = COLORS.panel
+    local tabsBar = Instance.new("Frame")
+    tabsBar.Size = UDim2.new(0, 160, 1, -bannerHeight)
+    tabsBar.Position = UDim2.new(0, 0, 0, bannerHeight)
+    tabsBar.BackgroundColor3 = COLORS.panel
 tabsBar.Parent = root
 local tabsBarCorner = Instance.new("UICorner") tabsBarCorner.CornerRadius = UDim.new(0, 6) tabsBarCorner.Parent = tabsBar
 local tabsBarLayout = Instance.new("UIListLayout") tabsBarLayout.Parent = tabsBar
@@ -2239,8 +2240,8 @@ end
 
 local pages = Instance.new("ScrollingFrame")
 pages.Name = "Pages"
-pages.Size = UDim2.new(1, -160, 1, 0)
-pages.Position = UDim2.new(0, 160, 0, 0)
+    pages.Size = UDim2.new(1, -160, 1, -bannerHeight)
+    pages.Position = UDim2.new(0, 160, 0, bannerHeight)
 pages.BackgroundTransparency = 1
 pages.ScrollBarThickness = 10
 pages.AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -2249,11 +2250,27 @@ pages.ClipsDescendants = true
 pages.Parent = root
 RegisterThemed(pages)
 
-local tabsUnderlay = Instance.new("Frame")
-tabsUnderlay.Name = "TabsUnderlay"
-tabsUnderlay.Size = UDim2.new(0, 160, 1, 0)
-tabsUnderlay.Position = UDim2.new(0, 0, 0, 0)
-tabsUnderlay.BackgroundColor3 = COLORS.panel
+-- top banner label
+local banner = Instance.new("TextLabel")
+banner.Name = "Banner"
+banner.Size = UDim2.new(1, 0, 0, bannerHeight)
+banner.Position = UDim2.new(0, 0, 0, 0)
+banner.BackgroundTransparency = 1
+banner.Font = Enum.Font.GothamBold
+banner.TextSize = 14
+banner.TextColor3 = COLORS.textDim
+banner.Text = "Your Desires - Built By Primesto.fx"
+banner.TextXAlignment = Enum.TextXAlignment.Center
+banner.TextYAlignment = Enum.TextYAlignment.Center
+banner.ZIndex = 60
+banner.Parent = root
+RegisterThemed(banner)
+
+    local tabsUnderlay = Instance.new("Frame")
+    tabsUnderlay.Name = "TabsUnderlay"
+    tabsUnderlay.Size = UDim2.new(0, 160, 1, -bannerHeight)
+    tabsUnderlay.Position = UDim2.new(0, 0, 0, bannerHeight)
+    tabsUnderlay.BackgroundColor3 = COLORS.panel
 tabsUnderlay.Parent = root
 local tabsUnderCorner = Instance.new("UICorner") tabsUnderCorner.CornerRadius = UDim.new(0,4) tabsUnderCorner.Parent = tabsUnderlay
 tabsUnderlay.ZIndex = 1
