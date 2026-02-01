@@ -87,6 +87,20 @@ local THEMES = {
         tabText = Color3.fromRGB(200,230,210), highlight = Color3.fromRGB(40,70,50), white = Color3.fromRGB(255,255,255),
         close = Color3.fromRGB(255,200,200), closeHover = Color3.fromRGB(255,120,150),
     },
+    ["Crimson Dusk"] = {
+        bg = Color3.fromRGB(30,16,18), panel = Color3.fromRGB(45,24,28), panelAlt = Color3.fromRGB(56,32,38),
+        panelDark = Color3.fromRGB(20,10,12), divider = Color3.fromRGB(100,60,70), accent = Color3.fromRGB(220,80,100),
+        accentHover = Color3.fromRGB(240,120,140), text = Color3.fromRGB(250,235,240), textDim = Color3.fromRGB(200,170,180),
+        tabText = Color3.fromRGB(230,200,210), highlight = Color3.fromRGB(80,40,50), white = Color3.fromRGB(255,255,255),
+        close = Color3.fromRGB(255,200,200), closeHover = Color3.fromRGB(255,120,150),
+    },
+    ["Sunset Amber"] = {
+        bg = Color3.fromRGB(28,20,12), panel = Color3.fromRGB(40,30,18), panelAlt = Color3.fromRGB(50,38,24),
+        panelDark = Color3.fromRGB(18,14,8), divider = Color3.fromRGB(90,70,40), accent = Color3.fromRGB(255,160,60),
+        accentHover = Color3.fromRGB(255,180,100), text = Color3.fromRGB(250,240,225), textDim = Color3.fromRGB(190,170,145),
+        tabText = Color3.fromRGB(230,210,190), highlight = Color3.fromRGB(100,75,45), white = Color3.fromRGB(255,255,255),
+        close = Color3.fromRGB(255,200,200), closeHover = Color3.fromRGB(255,120,150),
+    },
 }
 
 
@@ -606,7 +620,7 @@ end
 
 -- ** makeToggle
 
-local function makeToggle(parent, labelText)
+local function makeToggle(parent, labelText, tooltipText)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, 0, 0, 36)
     frame.BackgroundTransparency = 1
@@ -622,6 +636,40 @@ local function makeToggle(parent, labelText)
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = frame
     RegisterThemed(label)
+
+    local tooltip = nil
+    local tooltipShowTimer = nil
+    if tooltipText and type(tooltipText) == "string" then
+        tooltip = Instance.new("TextLabel")
+        tooltip.Name = "Tooltip"
+        tooltip.Text = tooltipText
+        tooltip.Font = Enum.Font.Gotham
+        tooltip.TextSize = 14
+        tooltip.TextColor3 = COLORS.text
+        tooltip.TextWrapped = true
+        tooltip.BackgroundColor3 = COLORS.panel
+        tooltip.BorderSizePixel = 0
+        tooltip.AnchorPoint = Vector2.new(0.5, 0)
+        tooltip.BackgroundTransparency = 1
+        tooltip.TextTransparency = 1
+        tooltip.Visible = false
+        tooltip.ZIndex = 10000
+        tooltip.Parent = frame
+        local tooltipCorner = Instance.new("UICorner")
+        tooltipCorner.CornerRadius = UDim.new(0, 6)
+        tooltipCorner.Parent = tooltip
+        local tooltipPad = Instance.new("UIPadding")
+        tooltipPad.PaddingLeft = UDim.new(0, 8)
+        tooltipPad.PaddingRight = UDim.new(0, 8)
+        tooltipPad.PaddingTop = UDim.new(0, 6)
+        tooltipPad.PaddingBottom = UDim.new(0, 6)
+        tooltipPad.Parent = tooltip
+        local tooltipStroke = Instance.new("UIStroke")
+        tooltipStroke.Color = COLORS.divider
+        tooltipStroke.Thickness = 1
+        tooltipStroke.Parent = tooltip
+        RegisterThemed(tooltip)
+    end
 
     local surfaceColor = COLORS.panel or COLORS.bg or COLORS.panelAlt
     local bgColor = COLORS.bg or COLORS.panel or surfaceColor
@@ -769,9 +817,34 @@ local function makeToggle(parent, labelText)
 
     toggle.MouseEnter:Connect(function()
         TweenService:Create(knob, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0, 24, 0, 24)}):Play()
+        
+        if tooltip then
+            tooltipShowTimer = tick()
+            delay(0.5, function()
+                if tooltipShowTimer and (tick() - tooltipShowTimer) >= 0.5 and tooltip and tooltip.Parent then
+                    tooltip.Visible = true
+                    tooltip.Size = UDim2.new(0, 200, 0, 50)
+                    tooltip.AnchorPoint = Vector2.new(0.5, 0)
+                    tooltip.Position = UDim2.new(0.5, 0, 0.8, 0)
+                    tooltip.BackgroundTransparency = 1
+                    tooltip.TextTransparency = 1
+                    TweenService:Create(tooltip, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0}):Play()
+                    TweenService:Create(tooltip, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 0}):Play()
+                end
+            end)
+        end
     end)
     toggle.MouseLeave:Connect(function()
         TweenService:Create(knob, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0, 22, 0, 22)}):Play()
+        
+        if tooltip then
+            tooltipShowTimer = nil
+            TweenService:Create(tooltip, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+            TweenService:Create(tooltip, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {TextTransparency = 1}):Play()
+            delay(0.14, function()
+                if tooltip and tooltip.Parent then tooltip.Visible = false end
+            end)
+        end
     end)
 
     toggle.Active = true
@@ -2627,14 +2700,13 @@ local playerChamsToggle = makeToggle(visualTab.LeftCol, "Players Chams")
 local playerChamsColorPicker = makeColorPicker(visualTab.RightCol, "Players Chams Color", initColor)
 local glowChamsToggle = makeToggle(visualTab.LeftCol, "Glow Chams")
 local glowIntensitySlider = makeSlider(visualTab.RightCol, "Glow Intensity", 0, 100, initialIntensity)
-local playerHealthToggle = makeToggle(visualTab.LeftCol, "Player Health")
+local playerHealthToggle = makeToggle(visualTab.LeftCol, "Player Health", "Show health for players in the game.")
 local showHealthKeybind = makeKeyBindButton(visualTab.RightCol, "Show Health Keybind", Enum.KeyCode.P)
 local espBoxesToggle = makeToggle(visualTab.LeftCol, "ESP Boxes")
 local espBoxesColorPicker = makeColorPicker(visualTab.LeftCol, "ESP Boxes Color", initColor)
-local showEnemyWeaponsToggle = makeToggle(visualTab.RightCol, "Show Enemy Weapons")
+local showEnemyWeaponsToggle = makeToggle(visualTab.RightCol, "Show Enemy Weapons", "Shows the weapons of enemies on your screen even.")
 
 ------------- Continue -------------
-
 
 -- ** Save Visuals to Config **
 BindToggleToConfig(playerChamsToggle, "visuals.playerChams", true)
@@ -2706,7 +2778,7 @@ BindToggleToConfig(autoShootToggle, "combat.autoShoot", false)
 
 -- ** Customization Tab Stuff
 
-local themeDropDownList = makeDropDownList(customizationTab.LeftCol, "Theme", {"Your Desire","Gilded Crown","Blue Hour","Verdant Pulse"}, 1)
+local themeDropDownList = makeDropDownList(customizationTab.LeftCol, "Theme", {"Your Desire","Gilded Crown","Blue Hour","Verdant Pulse","Crimson Dusk","Sunset Amber"}, 1)
 do
     local api = DropdownAPI[themeDropDownList]
     if api then
@@ -5681,6 +5753,28 @@ do
         return true
     end
 
+    local function isHoldingSniper()
+        if type(_G) == "table" and _G.RivalsCHTUI and _G.RivalsCHTUI.ShowEnemyWeapons and type(_G.RivalsCHTUI.ShowEnemyWeapons.GetLocalPlayerHeldWeapon) == "function" then
+            local ok, norm, raw = pcall(function() return _G.RivalsCHTUI.ShowEnemyWeapons.GetLocalPlayerHeldWeapon() end)
+            if ok and norm and string.find(string.lower(norm), "sniper") then
+                return true
+            end
+        end
+        return false
+    end
+
+    local rightClickPressTime = nil
+    local rightClickConn = UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton2 then
+            rightClickPressTime = tick()
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton2 then
+            rightClickPressTime = nil
+        end
+    end)
+
     local function checkAndFire()
         local autoShootEnabled = GetConfig("combat.autoShoot", false)
         if not autoShootEnabled then 
@@ -5828,10 +5922,11 @@ do
                 if firing then mouse1release(); firing = false end
             else
                 katanaBlocked = false
-                if not firing then
-                    firing = true
-                    debugMsg = "AutoShoot: FIRING at " .. found.player.Name
-                    -- ** always trigger aimlock when firing
+                
+                local holdingSniper = false
+                pcall(function() holdingSniper = isHoldingSniper() end)
+                
+                if holdingSniper then
                     if _G and _G.RivalsCHT_Aimbot then
                         if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
                             pcall(function() _G.RivalsCHT_Aimbot.SetPersistentTarget(found.head.Parent) end)
@@ -5844,20 +5939,57 @@ do
                             _G.RivalsCHT_Aimbot.Start()
                         end
                     end
-                    mouse1press()
-                else
-                    debugMsg = "AutoShoot: Holding fire on " .. found.player.Name
-                    -- ** always trigger aimlock when holding fire
-                    if _G and _G.RivalsCHT_Aimbot then
-                        if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
-                            pcall(function() _G.RivalsCHT_Aimbot.SetPersistentTarget(found.head.Parent) end)
-                            persistentEngaged = true
-                        end
-                        if type(_G.RivalsCHT_Aimbot.Trigger) == "function" then
-                            pcall(_G.RivalsCHT_Aimbot.Trigger)
+                    
+                    if rightClickPressTime == nil then
+                        debugMsg = "AutoShoot: Sniper - Aimlock active, waiting for right-click on " .. found.player.Name
+                        if firing then mouse1release(); firing = false end
+                    else
+                        local timeSinceClick = tick() - rightClickPressTime
+                        if timeSinceClick < 0.2 then
+                            debugMsg = "AutoShoot: Sniper - Right-click delay (" .. string.format("%.2f", timeSinceClick) .. "s)"
+                            if firing then mouse1release(); firing = false end
                         else
-                            _G.RivalsCHT_Aimbot.ForceActive = true
-                            _G.RivalsCHT_Aimbot.Start()
+                            if not firing then
+                                firing = true
+                                debugMsg = "AutoShoot: FIRING (Sniper) at " .. found.player.Name
+                                mouse1press()
+                            else
+                                debugMsg = "AutoShoot: Holding fire (Sniper) on " .. found.player.Name
+                            end
+                        end
+                    end
+                else
+                    if not firing then
+                        firing = true
+                        debugMsg = "AutoShoot: FIRING at " .. found.player.Name
+                        -- ** always trigger aimlock when firing
+                        if _G and _G.RivalsCHT_Aimbot then
+                            if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
+                                pcall(function() _G.RivalsCHT_Aimbot.SetPersistentTarget(found.head.Parent) end)
+                                persistentEngaged = true
+                            end
+                            if type(_G.RivalsCHT_Aimbot.Trigger) == "function" then
+                                pcall(_G.RivalsCHT_Aimbot.Trigger)
+                            else
+                                _G.RivalsCHT_Aimbot.ForceActive = true
+                                _G.RivalsCHT_Aimbot.Start()
+                            end
+                        end
+                        mouse1press()
+                    else
+                        debugMsg = "AutoShoot: Holding fire on " .. found.player.Name
+                        -- ** always trigger aimlock when holding fire
+                        if _G and _G.RivalsCHT_Aimbot then
+                            if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
+                                pcall(function() _G.RivalsCHT_Aimbot.SetPersistentTarget(found.head.Parent) end)
+                                persistentEngaged = true
+                            end
+                            if type(_G.RivalsCHT_Aimbot.Trigger) == "function" then
+                                pcall(_G.RivalsCHT_Aimbot.Trigger)
+                            else
+                                _G.RivalsCHT_Aimbot.ForceActive = true
+                                _G.RivalsCHT_Aimbot.Start()
+                            end
                         end
                     end
                 end
