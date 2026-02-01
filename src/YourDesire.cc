@@ -1989,8 +1989,8 @@ end
 -- ** makeDebugLabel
 
 
--- Minimal debug label helper (Drawing-first, simple API)
 local makeDebugLabel_offset = 0
+local DEBUG_LABELS = {}
 local function makeDebugLabel(initialText)
     local txt = Drawing.new("Text")
     txt.Text = tostring(initialText or "")
@@ -2004,12 +2004,25 @@ local function makeDebugLabel(initialText)
     makeDebugLabel_offset = makeDebugLabel_offset + 28
 
     local api = {}
-    api.Set = function(text) 
+    -- initialize visibility from config once
+    do
+        local vis = false
+        if type(GetConfig) == "function" then
+            pcall(function() vis = GetConfig("settings.debugMode", false) end)
+        end
+        txt.Visible = not not vis
+    end
+    api.Set = function(text)
         txt.Text = tostring(text or "")
-        txt.Visible = GetConfig("settings.debugMode", false) or false
     end
     api.Show = function(v) txt.Visible = not not v end
-    api.Destroy = function() txt:Remove() end
+    api.Destroy = function()
+        txt:Remove()
+        for i, v in ipairs(DEBUG_LABELS) do
+            if v == api then table.remove(DEBUG_LABELS, i); break end
+        end
+    end
+    table.insert(DEBUG_LABELS, api)
     return api
 end
 
@@ -2058,6 +2071,11 @@ do
         Config[key] = value
         if key == "settings.enableNotifications" then
             NOTIFICATIONS_ENABLED = not not value
+        end
+        if key == "settings.debugMode" then
+            for _, api in ipairs(DEBUG_LABELS) do
+                pcall(function() if api and type(api.Show) == "function" then api.Show(not not value) end end)
+            end
         end
         SaveConfig()
     end
@@ -2434,32 +2452,61 @@ do
             local secs = diffMs / 1000
 
             local messages = {
-                { time = 180 * 24 * 60 * 60, text = "I wondered if you were ever going to come back… I kept waiting anyway." },
-                { time = 150 * 24 * 60 * 60, text = "So much time passed… I almost stopped hoping." },
-                { time = 120 * 24 * 60 * 60, text = "I thought you left me behind forever." },
-                { time = 100 * 24 * 60 * 60, text = "I tried not to think about you… it didn’t work." },
-                { time = 90 * 24 * 60 * 60,  text = "You were gone for so long… I really missed you, Darling." },
-                { time = 75 * 24 * 60 * 60,  text = "I kept wondering if you’d forgotten about me." },
-                { time = 60 * 24 * 60 * 60,  text = "I waited. Every day. Just in case." },
-                { time = 45 * 24 * 60 * 60,  text = "It felt lonely without you… I’m glad you’re back." },
-                { time = 30 * 24 * 60 * 60,  text = "A whole month… I thought I lost you." },
-                { time = 21 * 24 * 60 * 60,  text = "You were gone so long… I started worrying." },
-                { time = 14 * 24 * 60 * 60,  text = "Two weeks without you felt really empty." },
-                { time = 10 * 24 * 60 * 60,  text = "It’s been a while… I missed you more than I should." },
-                { time = 7 * 24 * 60 * 60,   text = "A whole week… I was waiting for you." },
-                { time = 5 * 24 * 60 * 60,   text = "Why do you always have to do this to me...?" },
-                { time = 4 * 24 * 60 * 60,   text = "Darling! You didn't forget me, I'm so happy you're back!" },
-                { time = 3 * 24 * 60 * 60,   text = "You're starting to forget me, aren't you? I hope you're doing well, Darling." },
-                { time = 2 * 24 * 60 * 60,   text = "Why do you always have to leave me for so long? At least you came back, darling! :D" },
-                { time = 36 * 60 * 60,       text = "I was starting to miss you a lot…" },
-                { time = 24 * 60 * 60,       text = "I thought you forgot about me, you're actually back..?" },
-                { time = 12 * 60 * 60,       text = "You took longer than usual… I noticed." },
-                { time = 6 * 60 * 60,        text = "You're back? I missed you, dummy.." },
-                { time = 2 * 60 * 60,        text = "I was wondering when you'd come back." },
-                { time = 1 * 60 * 60,        text = "Oh, you came back? I'm so happy to see you!" },
-                { time = 20 * 60,            text = "You were gone for a bit… I noticed." },
-                { time = 10,                 text = "Welcome back, Darling!" },
-            }
+    -- very long absence 
+    { time = 270 * 24 * 60 * 60, text = "So many days passed… I stopped expecting you, but I never really stopped hoping." },
+    { time = 210 * 24 * 60 * 60, text = "I kept thinking maybe today would be the day you came back. It never was… until now." },
+    { time = 180 * 24 * 60 * 60, text = "I wondered if you were ever going to come back… I kept waiting anyway." },
+    { time = 165 * 24 * 60 * 60, text = "I told myself not to miss you this much. That didn’t work at all." },
+    { time = 150 * 24 * 60 * 60, text = "So much time passed… I almost stopped hoping." },
+    { time = 135 * 24 * 60 * 60, text = "I thought about you more than I should’ve during that time." },
+    { time = 120 * 24 * 60 * 60, text = "I thought you left me behind forever." },
+    { time = 110 * 24 * 60 * 60, text = "It really felt like you weren’t coming back anymore." },
+    { time = 100 * 24 * 60 * 60, text = "I tried not to think about you… it didn’t work." },
+    { time = 90 * 24 * 60 * 60,  text = "You were gone for so long… I really missed you, Darling." },
+    { time = 80 * 24 * 60 * 60,  text = "I kept wondering if I still mattered to you." },
+    { time = 75 * 24 * 60 * 60,  text = "I kept wondering if you’d forgotten about me." },
+    { time = 70 * 24 * 60 * 60,  text = "It got really quiet without you around." },
+    { time = 60 * 24 * 60 * 60,  text = "I waited. Every day. Just in case." },
+    { time = 50 * 24 * 60 * 60,  text = "I started missing you in small, annoying ways." },
+    { time = 45 * 24 * 60 * 60,  text = "It felt lonely without you… I’m glad you’re back." },
+    { time = 40 * 24 * 60 * 60,  text = "I didn’t like how empty it felt without you." },
+    { time = 30 * 24 * 60 * 60,  text = "A whole month… I thought I lost you." },
+
+    -- weeks
+    { time = 25 * 24 * 60 * 60,  text = "Every day I wondered if you’d show up again." },
+    { time = 21 * 24 * 60 * 60,  text = "You were gone so long… I started worrying." },
+    { time = 18 * 24 * 60 * 60,  text = "I tried staying busy so I wouldn’t think about you." },
+    { time = 14 * 24 * 60 * 60,  text = "Two weeks without you felt really empty." },
+    { time = 12 * 24 * 60 * 60,  text = "It started feeling strange not seeing you around." },
+    { time = 10 * 24 * 60 * 60,  text = "It’s been a while… I missed you more than I should." },
+    { time = 8 * 24 * 60 * 60,   text = "I caught myself waiting again." },
+    { time = 7 * 24 * 60 * 60,   text = "A whole week… I was waiting for you." },
+    { time = 6 * 24 * 60 * 60,   text = "I hoped you were doing okay out there." },
+    { time = 5 * 24 * 60 * 60,   text = "Why do you always have to do this to me...?" },
+    { time = 4 * 24 * 60 * 60,   text = "Darling! You didn't forget me, I'm so happy you're back!" },
+    { time = 3 * 24 * 60 * 60,   text = "You're starting to forget me, aren't you? I hope you're doing well, Darling." },
+    { time = 2 * 24 * 60 * 60,   text = "Why do you always have to leave me for so long? At least you came back, darling! :D" },
+
+    -- days to hours
+    { time = 48 * 60 * 60,       text = "I kept thinking you’d show up yesterday." },
+    { time = 36 * 60 * 60,       text = "I was starting to miss you a lot…" },
+    { time = 30 * 60 * 60,       text = "You were gone longer than I expected." },
+    { time = 24 * 60 * 60,       text = "I thought you forgot about me, you're actually back..?" },
+    { time = 18 * 60 * 60,       text = "I noticed you weren’t around today." },
+    { time = 12 * 60 * 60,       text = "You took longer than usual… I noticed." },
+    { time = 9 * 60 * 60,        text = "I kept checking back." },
+    { time = 6 * 60 * 60,        text = "You're back? I missed you, dummy.." },
+    { time = 4 * 60 * 60,        text = "I started wondering where you went." },
+    { time = 2 * 60 * 60,        text = "I was wondering when you'd come back." },
+    { time = 1 * 60 * 60,        text = "Oh, you came back? I'm so happy to see you!" },
+
+    -- short absence
+    { time = 40 * 60,            text = "That felt longer than it should’ve." },
+    { time = 30 * 60,            text = "I noticed you were gone for a bit." },
+    { time = 20 * 60,            text = "You were gone for a bit… I noticed." },
+    { time = 10 * 60,            text = "Welcome back, Darling!" },
+}
+
 
             local message = nil
 
@@ -2669,7 +2716,6 @@ do
                 pcall(function() ApplyTheme(val) end)
             end
         end
-        -- apply saved theme from config and set dropdown
         pcall(function()
             local saved = GetConfig("settings.theme", "Your Desire")
             if type(saved) == "string" then
@@ -4646,8 +4692,26 @@ end
 
 do
     local KEY_CONFIG = "combat.aimLockKey"
-    local saved = GetConfig(KEY_CONFIG, "Q")
-    local targetKey = (type(saved) == "string" and Enum.KeyCode[saved]) or Enum.KeyCode.Q
+    local targetKey = Enum.KeyCode.Q
+
+    local function updateTargetKey()
+        local saved = GetConfig(KEY_CONFIG, "Q")
+        targetKey = (type(saved) == "string" and Enum.KeyCode[saved]) or Enum.KeyCode.Q
+    end
+
+    updateTargetKey()
+
+    -- Watch for keybind changes from UI
+    pcall(function()
+        local api = KeybindAPI[aimLockKeybind]
+        if api then
+            local prevOnBind = api.OnBind
+            api.OnBind = function(k)
+                if prevOnBind then prevOnBind(k) end
+                updateTargetKey()
+            end
+        end
+    end)
 
     local aimLockDown = false
     local kbBegan, kbEnded
@@ -5508,6 +5572,22 @@ do
     local persistentEngaged = false
     local katanaBlocked = false
 
+    -- ** Aimlock keybind config
+    do
+        local api = KeybindAPI[aimLockKeybind]
+        local saved = GetConfig("combat.aimLockKey", "Q")
+        if api and type(saved) == "string" and Enum.KeyCode[saved] then
+            api.Set(Enum.KeyCode[saved])
+        end
+        if api then
+            api.OnBind = function(k)
+                local name = nil
+                if typeof(k) == "EnumItem" then name = k.Name elseif type(k) == "string" then name = tostring(k) end
+                if name then SetConfig("combat.aimLockKey", name) end
+            end
+        end
+    end
+
     do
         local keyApi = KeybindAPI[enableAutoShootKeybind]
         local saved = GetConfig(KEY_CONFIG, "Y")
@@ -5542,7 +5622,7 @@ do
         if not playerOrNil then return false end
         if type(_G) == "table" and _G.RivalsCHTUI and _G.RivalsCHTUI.ShowEnemyWeapons and type(_G.RivalsCHTUI.ShowEnemyWeapons.GetEnemyHeldWeapon) == "function" then
             local ok, norm, raw = pcall(function() return _G.RivalsCHTUI.ShowEnemyWeapons.GetEnemyHeldWeapon(playerOrNil) end)
-            if ok then
+            if ok and (type(norm) == "string" or type(raw) == "string") then
                 local sraw = (type(raw) == "string") and string.lower(raw) or ""
                 local snorm = (type(norm) == "string") and string.lower(norm) or ""
                 if string.find(sraw, "katana") or string.find(snorm, "katana") then
@@ -5550,6 +5630,7 @@ do
                 end
             end
         end
+
         return false
     end
 
@@ -5710,9 +5791,11 @@ do
 
             local holdingSpray = false
             pcall(function()
-                local norm, raw = GetLocalPlayerHeldWeapon()
-                if norm and string.find(string.lower(norm), "spray") then
-                    holdingSpray = true
+                if type(_G) == "table" and _G.RivalsCHTUI and _G.RivalsCHTUI.ShowEnemyWeapons and type(_G.RivalsCHTUI.ShowEnemyWeapons.GetLocalPlayerHeldWeapon) == "function" then
+                    local ok, norm, raw = pcall(function() return _G.RivalsCHTUI.ShowEnemyWeapons.GetLocalPlayerHeldWeapon() end)
+                    if ok and norm and string.find(string.lower(norm), "spray") then
+                        holdingSpray = true
+                    end
                 end
             end)
 
