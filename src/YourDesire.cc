@@ -6396,7 +6396,7 @@ do
     local respawnConns = {}
     local respawnWatcherActive = false
     local MAX_DISTANCE = 500
-    local BEHIND_DISTANCE = 3.2 -- studs behind target
+    local BEHIND_DISTANCE = 5 -- studs behind target
 
     local function isValidTarget(pl)
         if not pl or pl == LocalPlayer then return false end
