@@ -94,11 +94,11 @@ local THEMES = {
         tabText = Color3.fromRGB(230,200,210), highlight = Color3.fromRGB(80,40,50), white = Color3.fromRGB(255,255,255),
         close = Color3.fromRGB(255,200,200), closeHover = Color3.fromRGB(255,120,150),
     },
-    ["Sunset Amber"] = {
-        bg = Color3.fromRGB(28,20,12), panel = Color3.fromRGB(40,30,18), panelAlt = Color3.fromRGB(50,38,24),
-        panelDark = Color3.fromRGB(18,14,8), divider = Color3.fromRGB(90,70,40), accent = Color3.fromRGB(255,160,60),
-        accentHover = Color3.fromRGB(255,180,100), text = Color3.fromRGB(250,240,225), textDim = Color3.fromRGB(190,170,145),
-        tabText = Color3.fromRGB(230,210,190), highlight = Color3.fromRGB(100,75,45), white = Color3.fromRGB(255,255,255),
+    ["Slate Steel"] = {
+        bg = Color3.fromRGB(20,24,28), panel = Color3.fromRGB(32,38,46), panelAlt = Color3.fromRGB(42,50,60),
+        panelDark = Color3.fromRGB(16,18,22), divider = Color3.fromRGB(70,85,100), accent = Color3.fromRGB(140,180,220),
+        accentHover = Color3.fromRGB(170,210,255), text = Color3.fromRGB(235,240,245), textDim = Color3.fromRGB(170,185,200),
+        tabText = Color3.fromRGB(200,215,230), highlight = Color3.fromRGB(50,70,90), white = Color3.fromRGB(255,255,255),
         close = Color3.fromRGB(255,200,200), closeHover = Color3.fromRGB(255,120,150),
     },
 }
@@ -239,6 +239,7 @@ end
 -- ** Themed Registry ** --
 
 local THEME_REGISTRY = {}
+local TAB_WARNING_HANDLERS = {}
 
 local function snapshotColors(obj)
     local t = {}
@@ -405,7 +406,7 @@ end
 
 -- ** makeTab
 
-local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
+local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders, warningText)
     local btn = Instance.new("TextButton")
     local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 6) corner.Parent = btn
     btn.Name = name .. "Tab"
@@ -472,13 +473,108 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
     end)
 
 
+------------------------------------------------------------------------
+-- ** Warning Modal **
 
+    local warningOverlay = nil
+    local function showWarning()
+        if not warningText or type(warningText) ~= "string" then return end
+        if warningOverlay and warningOverlay.Parent then
+            warningOverlay.Visible = true
+            return
+        end
+        warningOverlay = Instance.new("Frame")
+        warningOverlay.Name = "TabWarningBackdrop"
+        warningOverlay.BackgroundColor3 = COLORS.panelAlt or Color3.fromRGB(10,10,10)
+        warningOverlay.BackgroundTransparency = 0.6
+        warningOverlay.BorderSizePixel = 0
+        warningOverlay.ZIndex = 10000
+        local pageAbsX = page.AbsolutePosition.X
+        local pageAbsY = page.AbsolutePosition.Y
+        local pageAbsW = page.AbsoluteSize.X
+        local pageAbsH = page.AbsoluteSize.Y
+        warningOverlay.Position = UDim2.new(0, pageAbsX, 0, pageAbsY)
+        warningOverlay.Size = UDim2.new(0, pageAbsW, 0, pageAbsH)
+        warningOverlay.Parent = gui
+
+        local modal = Instance.new("Frame")
+        modal.Name = "TabWarningModal"
+        modal.Size = UDim2.new(0.9, 0, 0.86, 0)
+        modal.Position = UDim2.new(0.5, 0, 0, 8)
+        modal.AnchorPoint = Vector2.new(0.5, 0)
+        modal.BackgroundColor3 = COLORS.panel
+        modal.BorderSizePixel = 0
+        modal.ZIndex = warningOverlay.ZIndex + 1
+        modal.Parent = warningOverlay
+        local modalCorner = Instance.new("UICorner") modalCorner.CornerRadius = UDim.new(0, 12) modalCorner.Parent = modal
+        local modalStroke = Instance.new("UIStroke") modalStroke.Color = COLORS.divider modalStroke.Thickness = 1 modalStroke.Parent = modal
+        RegisterThemed(modal)
+
+        local title = Instance.new("TextLabel")
+        title.Name = "Title"
+        title.Size = UDim2.new(1, -36, 0, 40)
+        title.Position = UDim2.new(0, 18, 0, 12)
+        title.BackgroundTransparency = 1
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 20
+        title.Text = "Warning"
+        title.TextColor3 = COLORS.accent
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.ZIndex = modal.ZIndex + 1
+        title.Parent = modal
+        RegisterThemed(title)
+
+        local msg = Instance.new("TextLabel")
+        msg.Name = "Message"
+        msg.Size = UDim2.new(1, -36, 1, -120)
+        msg.Position = UDim2.new(0, 18, 0, 64)
+        msg.BackgroundTransparency = 1
+        msg.Font = Enum.Font.Gotham
+        msg.TextSize = 16
+        msg.TextColor3 = COLORS.text
+        msg.TextWrapped = true
+        msg.Text = warningText
+        msg.TextXAlignment = Enum.TextXAlignment.Center
+        msg.TextYAlignment = Enum.TextYAlignment.Center
+        msg.ZIndex = modal.ZIndex + 1
+        msg.Parent = modal
+        RegisterThemed(msg)
+
+        local actionBtn = Instance.new("TextButton")
+        actionBtn.Name = "CloseBtn"
+        actionBtn.Size = UDim2.new(0, 160, 0, 40)
+        actionBtn.Position = UDim2.new(0.5, 0, 1, -56)
+        actionBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+        actionBtn.BackgroundColor3 = COLORS.accent
+        actionBtn.Font = Enum.Font.GothamBold
+        actionBtn.TextSize = 16
+        actionBtn.TextColor3 = COLORS.white
+        actionBtn.Text = "Okey"
+        actionBtn.ZIndex = modal.ZIndex + 2
+        actionBtn.Parent = modal
+        local actionCorner = Instance.new("UICorner") actionCorner.CornerRadius = UDim.new(0, 8) actionCorner.Parent = actionBtn
+        RegisterThemed(actionBtn)
+
+        actionBtn.MouseButton1Click:Connect(function()
+            if warningOverlay and warningOverlay.Parent then warningOverlay:Destroy() end
+        end)
+    end
+
+    TAB_WARNING_HANDLERS[page] = showWarning
 
     btn.MouseButton1Click:Connect(function()
         if type(onSelect) == "function" then pcall(onSelect, btn, page) end
+        showWarning()
     end)
 
-    -- ** Hover thing
+    if page and page:IsA("GuiObject") then
+        page:GetPropertyChangedSignal("Visible"):Connect(function()
+            if page.Visible then
+                showWarning()
+            end
+        end)
+    end
+
     btn.MouseEnter:Connect(function()
         local isActive = (btn.TextColor3 == COLORS.white)
         local target = isActive and COLORS.accentHover or COLORS.panelAlt
@@ -526,6 +622,7 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
         hdr.TextXAlignment = Enum.TextXAlignment.Left
         hdr.LayoutOrder = 0
         hdr.Parent = leftCol
+        RegisterThemed(hdr)
     end
 
 
@@ -561,6 +658,7 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders)
         hdrr.TextXAlignment = Enum.TextXAlignment.Left
         hdrr.LayoutOrder = 1
         hdrr.Parent = rightCol
+        RegisterThemed(hdrr)
     end
 
     -- ** Horizontal divider between cols
@@ -2170,6 +2268,62 @@ local function BindToggleToConfig(toggleFrame, key, default)
     end
 end
 
+local function BindKeybindToConfig(keybindFrame, key, default)
+    if not keybindFrame then return end
+    local api = KeybindAPI[keybindFrame]
+    if not api then return end
+
+    local saved = GetConfig(key, nil)
+    if type(saved) == "string" and Enum.KeyCode[saved] then
+        api.Set(Enum.KeyCode[saved])
+    else
+        if default and typeof(default) == "EnumItem" and default.EnumType == Enum.KeyCode then
+            api.Set(default)
+        elseif type(default) == "string" and Enum.KeyCode[default] then
+            api.Set(Enum.KeyCode[default])
+        end
+    end
+
+    do
+        local prev = api.OnBind
+        api.OnBind = function(k)
+            local name = nil
+            if typeof(k) == "EnumItem" then name = k.Name elseif type(k) == "string" then name = tostring(k) end
+            if name then SetConfig(key, name) end
+            if type(prev) == "function" then
+                pcall(prev, k)
+            end
+        end
+    end
+end
+
+local function BindSliderToConfig(sliderFrame, key, default)
+    if not sliderFrame then return end
+    local api = SliderAPI[sliderFrame]
+    if not api then return end
+
+    local saved = GetConfig(key, nil)
+    local n = nil
+    if type(saved) == "number" then
+        n = saved
+    elseif type(saved) == "string" then
+        n = tonumber(saved)
+    end
+    if n ~= nil then
+        if api.Set then api.Set(n) end
+    else
+        if default ~= nil and api.Set then api.Set(default) end
+    end
+
+    do
+        local prev = api.OnChange
+        api.OnChange = function(v)
+            SetConfig(key, v)
+            if type(prev) == "function" then prev(v) end
+        end
+    end
+end
+
 --------------------------------------------------------------------------
 
 -- ** Unsupported game check starts here ** --
@@ -2187,6 +2341,8 @@ local function showUnsupportedPopup()
     local allowed = isPlaceAllowed()
 
     if not warn or allowed then return end
+
+    local t = THEMES[GetConfig("settings.theme", "Your Desire")] or COLORS
 
     local sg = Instance.new("ScreenGui")
     sg.Name = "Rivals_Unsupported"
@@ -2206,37 +2362,41 @@ local function showUnsupportedPopup()
     pop.Size = UDim2.new(0,420,0,160)
     pop.Position = UDim2.new(0.5,0,0.5,0)
     pop.AnchorPoint = Vector2.new(0.5,0.5)
-    pop.BackgroundColor3 = COLORS.panel
+    pop.BackgroundColor3 = t.panel
     pop.BorderSizePixel = 0
     pop.ZIndex = 10001
     pop.Parent = sg
     local pc = Instance.new("UICorner") pc.CornerRadius = UDim.new(0,10) pc.Parent = pop
-    local stroke = Instance.new("UIStroke") stroke.Color = COLORS.divider stroke.Thickness = 1 stroke.Parent = pop
+    local stroke = Instance.new("UIStroke") stroke.Color = t.divider stroke.Thickness = 1 stroke.Parent = pop
 
 
-    local header = Instance.new("Frame") header.Size = UDim2.new(1,0,0,40) header.Position = UDim2.new(0,0,0,0) header.BackgroundColor3 = COLORS.bg header.ZIndex = pop.ZIndex + 1 header.Parent = pop
-    local icon = Instance.new("TextLabel") icon.Size = UDim2.new(0,36,1,0) icon.Position = UDim2.new(0,10,0,0) icon.BackgroundTransparency = 1 icon.Font = Enum.Font.GothamBold icon.TextSize = 20 icon.TextColor3 = COLORS.accent icon.Text = "⚠" icon.TextXAlignment = Enum.TextXAlignment.Center icon.ZIndex = header.ZIndex + 1 icon.Parent = header
-    local title = Instance.new("TextLabel") title.Size = UDim2.new(1,-56,1,0) title.Position = UDim2.new(0,56,0,0) title.BackgroundTransparency = 1 title.Font = Enum.Font.GothamBold title.TextSize = 16 title.TextColor3 = COLORS.text title.Text = "Script Run Check" title.TextXAlignment = Enum.TextXAlignment.Left title.ZIndex = header.ZIndex + 1 title.Parent = header
+    local header = Instance.new("Frame") header.Size = UDim2.new(1,0,0,40) header.Position = UDim2.new(0,0,0,0) header.BackgroundColor3 = t.bg header.ZIndex = pop.ZIndex + 1 header.Parent = pop
+    RegisterThemed(header)
+    local icon = Instance.new("TextLabel") icon.Size = UDim2.new(0,36,1,0) icon.Position = UDim2.new(0,10,0,0) icon.BackgroundTransparency = 1 icon.Font = Enum.Font.GothamBold icon.TextSize = 20 icon.TextColor3 = t.accent icon.Text = "⚠" icon.TextXAlignment = Enum.TextXAlignment.Center icon.ZIndex = header.ZIndex + 1 icon.Parent = header
+    RegisterThemed(icon)
+    local title = Instance.new("TextLabel") title.Size = UDim2.new(1,-56,1,0) title.Position = UDim2.new(0,56,0,0) title.BackgroundTransparency = 1 title.Font = Enum.Font.GothamBold title.TextSize = 16 title.TextColor3 = t.text title.Text = "Script Run Check" title.TextXAlignment = Enum.TextXAlignment.Left title.ZIndex = header.ZIndex + 1 title.Parent = header
+    RegisterThemed(title)
 
-    local msg = Instance.new("TextLabel") msg.Size = UDim2.new(1,-24,0,72) msg.Position = UDim2.new(0,12,0,48) msg.BackgroundTransparency = 1 msg.Font = Enum.Font.Gotham msg.TextSize = 16 msg.TextColor3 = COLORS.textDim msg.Text = "Are you sure you want to run the script?" msg.TextWrapped = true msg.TextXAlignment = Enum.TextXAlignment.Center msg.ZIndex = pop.ZIndex + 1 msg.Parent = pop
+    local msg = Instance.new("TextLabel") msg.Size = UDim2.new(1,-24,0,72) msg.Position = UDim2.new(0,12,0,48) msg.BackgroundTransparency = 1 msg.Font = Enum.Font.Gotham msg.TextSize = 16 msg.TextColor3 = t.textDim msg.Text = "Are you sure you want to run the script?" msg.TextWrapped = true msg.TextXAlignment = Enum.TextXAlignment.Center msg.ZIndex = pop.ZIndex + 1 msg.Parent = pop
+    RegisterThemed(msg)
 
-    local btnNo = Instance.new("TextButton") btnNo.Size = UDim2.new(0.44,-8,0,40) btnNo.Position = UDim2.new(0,12,1,-52) btnNo.BackgroundColor3 = COLORS.bg btnNo.Font = Enum.Font.GothamBold btnNo.TextSize = 16 btnNo.TextColor3 = COLORS.text btnNo.Text = "No.." btnNo.ZIndex = pop.ZIndex + 1 btnNo.Parent = pop local noCorner = Instance.new("UICorner") noCorner.CornerRadius = UDim.new(0,8) noCorner.Parent = btnNo local noStroke = Instance.new("UIStroke") noStroke.Color = COLORS.divider noStroke.Thickness = 1 noStroke.Parent = btnNo
-    local btnYes = Instance.new("TextButton") btnYes.Size = UDim2.new(0.44,-8,0,40) btnYes.Position = UDim2.new(1,-12,1,-52) btnYes.AnchorPoint = Vector2.new(1,0) btnYes.BackgroundColor3 = COLORS.accent btnYes.Font = Enum.Font.GothamBold btnYes.TextSize = 16 btnYes.TextColor3 = COLORS.white btnYes.Text = "Yes!" btnYes.ZIndex = pop.ZIndex + 1 btnYes.Parent = pop local yesCorner = Instance.new("UICorner") yesCorner.CornerRadius = UDim.new(0,8) yesCorner.Parent = btnYes
+    local btnNo = Instance.new("TextButton") btnNo.Size = UDim2.new(0.44,-8,0,40) btnNo.Position = UDim2.new(0,12,1,-52) btnNo.BackgroundColor3 = t.bg btnNo.Font = Enum.Font.GothamBold btnNo.TextSize = 16 btnNo.TextColor3 = t.text btnNo.Text = "No.." btnNo.ZIndex = pop.ZIndex + 1 btnNo.Parent = pop local noCorner = Instance.new("UICorner") noCorner.CornerRadius = UDim.new(0,8) noCorner.Parent = btnNo local noStroke = Instance.new("UIStroke") noStroke.Color = t.divider noStroke.Thickness = 1 noStroke.Parent = btnNo
+    local btnYes = Instance.new("TextButton") btnYes.Size = UDim2.new(0.44,-8,0,40) btnYes.Position = UDim2.new(1,-12,1,-52) btnYes.AnchorPoint = Vector2.new(1,0) btnYes.BackgroundColor3 = t.accent btnYes.Font = Enum.Font.GothamBold btnYes.TextSize = 16 btnYes.TextColor3 = t.white btnYes.Text = "Yes!" btnYes.ZIndex = pop.ZIndex + 1 btnYes.Parent = pop local yesCorner = Instance.new("UICorner") yesCorner.CornerRadius = UDim.new(0,8) yesCorner.Parent = btnYes
 
-    RegisterThemed(btnNo, function() pcall(function() btnNo.BackgroundColor3 = COLORS.bg; btnNo.TextColor3 = COLORS.text; if noStroke then noStroke.Color = COLORS.divider end end) end)
-    RegisterThemed(btnYes, function() pcall(function() btnYes.BackgroundColor3 = COLORS.accent; btnYes.TextColor3 = COLORS.white end) end)
+    RegisterThemed(btnNo, function() pcall(function() btnNo.BackgroundColor3 = t.bg; btnNo.TextColor3 = t.text; if noStroke then noStroke.Color = t.divider end end) end)
+    RegisterThemed(btnYes, function() pcall(function() btnYes.BackgroundColor3 = t.accent; btnYes.TextColor3 = t.white end) end)
 
     RegisterThemed(pop, function()
         pcall(function()
-            pop.BackgroundColor3 = COLORS.panel
-            stroke.Color = COLORS.divider
-            if header and header:IsA("GuiObject") then header.BackgroundColor3 = COLORS.bg end
-            if icon and icon:IsA("TextLabel") then icon.TextColor3 = COLORS.accent end
-            if title and title:IsA("TextLabel") then title.TextColor3 = COLORS.text end
-            if msg and msg:IsA("TextLabel") then msg.TextColor3 = COLORS.textDim end
-            if btnNo and btnNo:IsA("TextButton") then btnNo.BackgroundColor3 = COLORS.bg; btnNo.TextColor3 = COLORS.text end
-            if noStroke then noStroke.Color = COLORS.divider end
-            if btnYes and btnYes:IsA("TextButton") then btnYes.BackgroundColor3 = COLORS.accent; btnYes.TextColor3 = COLORS.white end
+            pop.BackgroundColor3 = t.panel
+            stroke.Color = t.divider
+            if header and header:IsA("GuiObject") then header.BackgroundColor3 = t.bg end
+            if icon and icon:IsA("TextLabel") then icon.TextColor3 = t.accent end
+            if title and title:IsA("TextLabel") then title.TextColor3 = t.text end
+            if msg and msg:IsA("TextLabel") then msg.TextColor3 = t.textDim end
+            if btnNo and btnNo:IsA("TextButton") then btnNo.BackgroundColor3 = t.bg; btnNo.TextColor3 = t.text end
+            if noStroke then noStroke.Color = t.divider end
+            if btnYes and btnYes:IsA("TextButton") then btnYes.BackgroundColor3 = t.accent; btnYes.TextColor3 = t.white end
         end)
     end)
 
@@ -2659,6 +2819,9 @@ local function selectTab(button, page)
         if ind then TweenService:Create(ind, tweenInfo, {BackgroundTransparency = 0}):Play() end
     end)
     page.Visible = true
+    -- trigger any registered tab warning for this page
+    local h = TAB_WARNING_HANDLERS[page]
+    if type(h) == "function" then h() end
 end
 
 
@@ -2672,6 +2835,10 @@ visualTab.page.Parent = pages
 local combatTab = makeTab("Combat", tabsBar, pages, selectTab, { Left = "General", Right = "Advanced" })
 combatTab.page.Parent = pages
 
+-- ** Rage tab
+local rageTab = makeTab("Rage", tabsBar, pages, selectTab, { Left = "General", Right = "Advanced" }, "Did you know that using rage cheats puts u at a higher risk of getting banned? im not gonna gaf if u get banned yk right")
+rageTab.page.Parent = pages
+
 -- Settings Tab
 local settingsTab = makeTab("Settings", tabsBar, pages, selectTab, { Left = "General", Right = "Advanced" })
 settingsTab.page.Parent = pages
@@ -2679,6 +2846,7 @@ settingsTab.page.Parent = pages
 -- Customization Tab
 local customizationTab = makeTab("Customization", tabsBar, pages, selectTab, { Left = "General", Right = "Advanced" })
 customizationTab.page.Parent = pages
+
 
 
 -------------------- Break for Tab Selection --------------------
@@ -2698,7 +2866,7 @@ end)
 
 local playerChamsToggle = makeToggle(visualTab.LeftCol, "Players Chams")
 local playerChamsColorPicker = makeColorPicker(visualTab.RightCol, "Players Chams Color", initColor)
-local glowChamsToggle = makeToggle(visualTab.LeftCol, "Glow Chams")
+local glowChamsToggle = makeToggle(visualTab.LeftCol, "Glow Chams", "Does what player chams does but with a glow effect.")
 local glowIntensitySlider = makeSlider(visualTab.RightCol, "Glow Intensity", 0, 100, initialIntensity)
 local playerHealthToggle = makeToggle(visualTab.LeftCol, "Player Health", "Show health for players in the game.")
 local showHealthKeybind = makeKeyBindButton(visualTab.RightCol, "Show Health Keybind", Enum.KeyCode.P)
@@ -2736,6 +2904,7 @@ BindToggleToConfig(warnIfUnsupportedGameToggle, "settings.warnIfUnsupportedGame"
 BindToggleToConfig(showNotificationsToggle, "settings.enableNotifications", true)
 BindToggleToConfig(debugModeToggle, "settings.debugMode", false)
 BindToggleToConfig(debugConfigToggle, "settings.debugConfig", false)
+
 ---------------------------------------------------------------------------
 
 -- ** Combat Tab Stuff
@@ -2748,21 +2917,22 @@ local aimbotToggle, enableAimbotKeybind, useAimbotSmoothingToggle, smoothingSlid
 local aimbotGroup = makeCollapsibleGroup(combatTab.LeftCol, "Aimbot", false, function(parent)
     aimbotToggle = makeToggle(parent, "Aimbot")
     enableAimbotKeybind = makeKeyBindButton(parent, "Enable Aimbot", Enum.KeyCode.V)
-    persistentAimbotToggle = makeToggle(parent, "Persistent Aimbot")
+    persistentAimbotToggle = makeToggle(parent, "Persistent Aimbot", "Doesn't let the enemy escape ur fov once locked onto")
     useAimbotSmoothingToggle = makeToggle(parent, "Use Aimbot Smoothing")
     smoothingSlider = makeSlider(parent, "Aimbot Smooth", 1, 100, initialSmoothing)
     aimbotFOVSlider = makeSlider(parent, "Aimbot FOV", 1, 1000, initialAimbotFOV)
     aimLockKeybind = makeKeyBindButton(parent, "Aim Lock Keybind", Enum.KeyCode.Q)
-    aimPredictionToggle = makeToggle(parent, "Aimbot Prediction")
+    aimPredictionToggle = makeToggle(parent, "Aimbot Prediction", "Tries to predict enemy movement, mostly for long ranged weapons.")
 end)
 
 local drawFovCircleToggle = makeToggle(combatTab.LeftCol, "Draw FOV Circle")
-local targetBehindWallsToggle = makeToggle(combatTab.LeftCol, "Target Behind Walls")
+local targetBehindWallsToggle = makeToggle(combatTab.LeftCol, "Target Behind Walls", "Allows the aimbot to target enemies behind walls.")
 local teamCheckToggle = makeToggle(combatTab.LeftCol, "Team Check")
-local sixthSenseToggle = makeToggle(combatTab.RightCol, "Sixth Sense")
+local sixthSenseToggle = makeToggle(combatTab.RightCol, "Sixth Sense", "Tells u where traps are and if the enemy is holding a katana.")
 
-local autoShootToggle = makeToggle(combatTab.LeftCol, "Auto-Shoot")
+local autoShootToggle = makeToggle(combatTab.LeftCol, "Auto-Shoot", "Shoots automatically when an enemy is in your crosshair.")
 local enableAutoShootKeybind = makeKeyBindButton(combatTab.RightCol, "Auto-Shoot Keybind", Enum.KeyCode.Y)
+
 -- ** Save Combat to Config **
 BindToggleToConfig(aimbotToggle, "combat.aimbot", false)
 BindToggleToConfig(useAimbotSmoothingToggle, "combat.useAimbotSmoothing", false)
@@ -2774,11 +2944,34 @@ BindToggleToConfig(aimPredictionToggle, "combat.aimPrediction", false)
 BindToggleToConfig(persistentAimbotToggle, "combat.persistentAimbot", false)
 BindToggleToConfig(autoShootToggle, "combat.autoShoot", false)
 
+-------------------------------------------------------------------------
+
+-- Rage Tab Stuff
+local noclipToggle = makeToggle(rageTab.LeftCol, "Noclip", "Allows you to walk through walls and objects.")
+local noclipKeybind = makeKeyBindButton(rageTab.LeftCol, "Noclip Keybind", Enum.KeyCode.N)
+
+local stickToToggle, stickToKeybind, useStickSmoothingToggle, smoothStickingSlider
+local stickGroup = makeCollapsibleGroup(rageTab.LeftCol, "Stick to Players", false, function(parent)
+    stickToToggle = makeToggle(parent, "Stick to Target", "Makes you stick to the nearest target behind them")
+    stickToKeybind = makeKeyBindButton(parent, "Stick to Target Keybind", Enum.KeyCode.I)
+    useStickSmoothingToggle = makeToggle(parent, "Use Smooth Sticking", "Smoothly moves you towards the target instead of teleporting.")
+    smoothStickingSlider = makeSlider(parent, "Smooth Sticking", 0, 100, initialIntensity)
+end)
+
+
+
+-- ** Save Rage to Config **
+BindToggleToConfig(noclipToggle, "rage.noclip", false)
+BindKeybindToConfig(noclipKeybind, "rage.noclipKeybind", Enum.KeyCode.N)
+BindToggleToConfig(stickToToggle, "rage.stickToTarget", false)
+BindKeybindToConfig(stickToKeybind, "rage.stickToTargetKeybind", Enum.KeyCode.U)
+BindToggleToConfig(useStickSmoothingToggle, "rage.useStickSmoothing", false)
+BindSliderToConfig(smoothStickingSlider, "rage.smoothStickingIntensity", 20)
 ---------------------------------------------------------------------------
 
 -- ** Customization Tab Stuff
 
-local themeDropDownList = makeDropDownList(customizationTab.LeftCol, "Theme", {"Your Desire","Gilded Crown","Blue Hour","Verdant Pulse","Crimson Dusk","Sunset Amber"}, 1)
+local themeDropDownList = makeDropDownList(customizationTab.LeftCol, "Theme", {"Your Desire","Gilded Crown","Blue Hour","Verdant Pulse","Crimson Dusk","Slate Steel"}, 1)
 do
     local api = DropdownAPI[themeDropDownList]
     if api then
@@ -2792,7 +2985,7 @@ do
             local saved = GetConfig("settings.theme", "Your Desire")
             if type(saved) == "string" then
                 ApplyTheme(saved)
-                for i, name in ipairs({"Your Desire","Gilded Crown","Blue Hour","Verdant Pulse"}) do
+                for i, name in ipairs({"Your Desire","Gilded Crown","Blue Hour","Verdant Pulse","Crimson Dusk","Slate Steel"}) do
                     if name == saved then api.Set(i); break end
                 end
             else
@@ -2802,7 +2995,11 @@ do
     end
 end
 
+local useGradientsToggle = makeToggle(customizationTab.LeftCol, "Use Gradients", "If to use gradients in the UI elements.")
+
+
 -- ** Save Customization to Config **
+BindToggleToConfig(useGradientsToggle, "customization.useGradients", true)
 
 ---------------------------------------------------------------------------
 
@@ -6082,6 +6279,348 @@ do
 end
 
 -- ** Auto Shoot Logic Ends Here ** --
+
+
+-- ** No-Clip Logic Starts Here ** --
+
+do
+    local noclipEnabled = false
+    local player = Players.LocalPlayer
+    local currentKeybind = Enum.KeyCode.N
+    local keybindConn = nil
+    local toggleApi = ToggleAPI[noclipToggle]
+    local originalCollisionStates = {}
+    
+    local function getBodyParts()
+        if not player or not player.Character then return {} end
+        local char = player.Character
+        local parts = {}
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                table.insert(parts, part)
+            end
+        end
+        return parts
+    end
+
+    local function setNoclip(enabled)
+        noclipEnabled = enabled
+        local parts = getBodyParts()
+        
+        if enabled then
+            originalCollisionStates = {}
+            for _, part in ipairs(parts) do
+                if part then
+                    originalCollisionStates[part] = part.CanCollide
+                    part.CanCollide = false
+                end
+            end
+        else
+            for part, originalState in pairs(originalCollisionStates) do
+                if part and part.Parent then
+                    part.CanCollide = originalState
+                end
+            end
+            originalCollisionStates = {}
+        end
+        
+        makeNotification(enabled and "Noclip is ON" or "Noclip is OFF", 3)
+        SetConfig("rage.noclip", enabled)
+    end
+
+    if toggleApi then
+        toggleApi.OnToggle = function(state) setNoclip(state) end
+    end
+
+    local function setupKeybindListener()
+        if keybindConn then keybindConn:Disconnect() end
+        keybindConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+            local api = KeybindAPI[noclipKeybind]
+            local bound = nil
+            if api and api.Get and api.Get() then
+                bound = api.Get()
+            else
+                local saved = GetConfig("rage.noclipKeybind", nil)
+                if type(saved) == "string" and Enum.KeyCode[saved] then bound = Enum.KeyCode[saved] end
+            end
+
+            if bound and input.KeyCode == bound then
+                local currentState = GetConfig("rage.noclip", false)
+                local newState = not currentState
+                SetConfig("rage.noclip", newState)
+                if toggleApi and toggleApi.Set then toggleApi.Set(newState) end
+            end
+        end)
+    end
+
+    BindKeybindToConfig(noclipKeybind, "rage.noclipKeybind", Enum.KeyCode.N)
+
+    setupKeybindListener()
+
+    do
+        local savedState = GetConfig("rage.noclip", false)
+        if toggleApi and toggleApi.Set then
+            local prev = toggleApi.OnToggle
+            toggleApi.OnToggle = nil
+            pcall(toggleApi.Set, savedState)
+            toggleApi.OnToggle = prev
+        end
+    end
+
+    RegisterUnload(function()
+        setNoclip(false)
+        if keybindConn then keybindConn:Disconnect() end
+    end)
+end
+
+
+-- ** No-Clip Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Stick to Target Logic Starts Here ** --
+
+do
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local UserInputService = game:GetService("UserInputService")
+
+    local LocalPlayer = Players.LocalPlayer
+    local stickEnabled = false
+    local stickConn = nil
+    local keybindConn = nil
+    local stickTarget = nil
+    local respawnConns = {}
+    local respawnWatcherActive = false
+    local MAX_DISTANCE = 500
+    local BEHIND_DISTANCE = 3.2 -- studs behind target
+
+    local function isValidTarget(pl)
+        if not pl or pl == LocalPlayer then return false end
+        if not pl.Character then return false end
+        local pp = pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")
+        if not pp or not pp.Parent then return false end
+        local humanoid = pl.Character:FindFirstChildOfClass("Humanoid")
+        if not humanoid or type(humanoid.Health) ~= "number" then return false end
+        if humanoid.Health <= 0 then return false end
+        return true
+    end
+
+    local function findStickTarget()
+        local cam = workspace.CurrentCamera
+        if not cam then return nil end
+        local look = cam.CFrame.LookVector
+        local origin = cam.CFrame.Position
+        local best, bestDist = nil, math.huge
+        local teamCheckEnabled = GetConfig("combat.teamCheck", true)
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if isValidTarget(pl) then
+                local isTeammate = false
+                if teamCheckEnabled and _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                    isTeammate = _G.RivalsCHT_TeamCheck.IsTeammate(pl)
+                end
+
+                if not isTeammate then
+                    local pp = pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")
+                    local toTarget = pp.Position - origin
+                    local dot = look:Dot(toTarget.Unit)
+                    if dot > 0.65 then
+                        local dist = toTarget.Magnitude
+                        if dist < MAX_DISTANCE and dist < bestDist then
+                            best = pl
+                            bestDist = dist
+                        end
+                    end
+                end
+            end
+        end
+        return best
+    end
+
+    local function stopRespawnWatcher()
+        if not respawnWatcherActive then return end
+        respawnWatcherActive = false
+        for _,c in ipairs(respawnConns) do
+            pcall(function() if c and c.Disconnect then c:Disconnect() end end)
+        end
+        respawnConns = {}
+    end
+
+    local function startRespawnWatcher()
+        if respawnWatcherActive then return end
+        respawnWatcherActive = true
+        local teamCheckEnabled = GetConfig("combat.teamCheck", true)
+        for _,p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local function onChar(char)
+                    if not p or p == LocalPlayer then return end
+                    local isTeammate = false
+                    if teamCheckEnabled and _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                        isTeammate = _G.RivalsCHT_TeamCheck.IsTeammate(p)
+                    end
+                    if not isTeammate and isValidTarget(p) then
+                        stickTarget = p
+                        stopRespawnWatcher()
+                    end
+                end
+                if p.Character then onChar(p.Character) end
+                if p.CharacterAdded then table.insert(respawnConns, p.CharacterAdded:Connect(onChar)) end
+            end
+        end
+        table.insert(respawnConns, Players.PlayerAdded:Connect(function(p)
+            if p == LocalPlayer then return end
+            local function onChar(char)
+                local teamCheckEnabled2 = GetConfig("combat.teamCheck", true)
+                local isTeammate = false
+                if teamCheckEnabled2 and _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                    isTeammate = _G.RivalsCHT_TeamCheck.IsTeammate(p)
+                end
+                if not isTeammate and isValidTarget(p) then
+                    stickTarget = p
+                    stopRespawnWatcher()
+                end
+            end
+            if p.Character then onChar(p.Character) end
+            if p.CharacterAdded then table.insert(respawnConns, p.CharacterAdded:Connect(onChar)) end
+        end))
+    end
+
+    local function startStick()
+        if stickConn then return end
+        local lastSelect = 0
+        local lastMove = 0
+        local SELECT_INTERVAL = 0.25 -- seconds
+        local MOVE_INTERVAL = 0 -- seconds 
+        local prevHeartbeat = tick()
+        stickConn = RunService.Heartbeat:Connect(function()
+            if not stickEnabled then return end
+            if not LocalPlayer or not LocalPlayer.Character then return end
+            local lpRoot = LocalPlayer.Character.PrimaryPart or LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if not lpRoot then return end
+
+            local now = tick()
+            local dt = now - prevHeartbeat
+            prevHeartbeat = now
+            if stickTarget and not isValidTarget(stickTarget) then
+                local newT = findStickTarget()
+                if newT then
+                    stickTarget = newT
+                    lastSelect = now
+                    stopRespawnWatcher()
+                else
+                    stickTarget = nil
+                    startRespawnWatcher()
+                end
+            end
+
+            if (not stickTarget or not isValidTarget(stickTarget)) and now - lastSelect >= SELECT_INTERVAL then
+                stickTarget = findStickTarget()
+                lastSelect = now
+            end
+
+            if stickTarget and isValidTarget(stickTarget) and now - lastMove >= MOVE_INTERVAL then
+                lastMove = now
+                local tp = stickTarget.Character.PrimaryPart or stickTarget.Character:FindFirstChild("HumanoidRootPart")
+                if tp and tp.Position then
+                    local backPos = tp.Position - (tp.CFrame.LookVector.Unit * BEHIND_DISTANCE)
+                    local dest = CFrame.new(backPos, tp.Position)
+                    if LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
+                        local useSmoothing = false
+                        local sToggleApi = ToggleAPI and ToggleAPI[useStickSmoothingToggle]
+                        if sToggleApi and sToggleApi.Get then
+                            useSmoothing = not not sToggleApi.Get()
+                        else
+                            useSmoothing = GetConfig("rage.useStickSmoothing", false)
+                        end
+                        if useSmoothing then
+                            local intensity = nil
+                            local sApi = SliderAPI and SliderAPI[smoothStickingSlider]
+                            if sApi and sApi.Get then
+                                intensity = sApi.Get()
+                            else
+                                intensity = GetConfig("rage.smoothStickingIntensity", 20)
+                            end
+                            if type(intensity) ~= "number" then intensity = 20 end
+                            local alpha = math.clamp(intensity / 100, 0, 1)
+                            local lerpAlpha = math.clamp(alpha * (dt * 8), 0, 1)
+                            LocalPlayer.Character:SetPrimaryPartCFrame(LocalPlayer.Character.PrimaryPart.CFrame:Lerp(dest, lerpAlpha))
+                        else
+                            LocalPlayer.Character:SetPrimaryPartCFrame(dest)
+                        end
+                    end
+                end
+            end
+        end)
+    end
+
+    local function stopStick()
+        if stickConn then
+            if stickConn.Disconnect then stickConn:Disconnect() end
+            stickConn = nil
+        end
+        stickTarget = nil
+        stopRespawnWatcher()
+    end
+
+    do
+        local api = ToggleAPI and ToggleAPI[stickToToggle]
+        if api then
+            local prev = api.OnToggle
+            api.OnToggle = function(state)
+                if prev then prev(state) end
+                stickEnabled = not not state
+                if stickEnabled then
+                    startStick()
+                    makeNotification("Stick to Target is ON", 3)
+                else
+                    stopStick()
+                    makeNotification("Stick to Target is OFF", 3)
+                end
+            end
+            if api.Set then
+                local prevOn = api.OnToggle
+                api.OnToggle = nil
+                pcall(api.Set, GetConfig("rage.stickToTarget", false))
+                api.OnToggle = prevOn
+            end
+        end
+    end
+
+    do
+        if keybindConn and keybindConn.Disconnect then keybindConn:Disconnect() end
+        keybindConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+            local api = KeybindAPI and KeybindAPI[stickToKeybind]
+            local bound = nil
+            if api and api.Get and api.Get() then
+                bound = api.Get()
+            else
+                local saved = GetConfig("rage.stickToTargetKeybind", nil)
+                if type(saved) == "string" and Enum.KeyCode[saved] then bound = Enum.KeyCode[saved] end
+            end
+
+            if bound and input.KeyCode == bound then
+                local current = GetConfig("rage.stickToTarget", false)
+                local newState = not current
+                SetConfig("rage.stickToTarget", newState)
+                local api = ToggleAPI and ToggleAPI[stickToToggle]
+                if api and api.Set then api.Set(newState) end
+            end
+        end)
+    end
+
+    RegisterUnload(function()
+        stopStick()
+        if keybindConn and keybindConn.Disconnect then keybindConn:Disconnect() end
+    end)
+end
+
+-- ** Stick to Target Logic Ends Here ** --
 
 ---------------------------------------------------------------------------
 
