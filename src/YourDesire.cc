@@ -4292,6 +4292,29 @@ do
             end)
             return ok and isTeam or false
         end
+        teamApi.IsEnemy = function(playerOrName)
+            if not playerOrName then return false end
+            local Players = game:GetService("Players")
+            local pl = nil
+            if type(playerOrName) == "string" then
+                pl = Players:FindFirstChild(playerOrName)
+                if not pl then return false end
+            else
+                pl = playerOrName
+            end
+            if type(teamApi.IsTeammate) == "function" then
+                local ok, res = pcall(teamApi.IsTeammate, pl)
+                if ok and type(res) == "boolean" then
+                    return not res
+                end
+            end
+            -- fallback to Team comparison if available
+            local lp = Players.LocalPlayer
+            if lp and lp.Team and pl.Team then
+                return lp.Team ~= pl.Team
+            end
+            return false
+        end
         teamApi.GetTeammates = function()
             local t = {}
             for p,v in pairs(teammateCache) do if v and v.isTeam then table.insert(t,p) end end
@@ -6395,8 +6418,8 @@ do
     local stickTarget = nil
     local respawnConns = {}
     local respawnWatcherActive = false
-    local MAX_DISTANCE = 500
-    local BEHIND_DISTANCE = 5 -- studs behind target
+    local MAX_DISTANCE = 300
+    local BEHIND_DISTANCE = 8 -- studs behind target
 
     local function isValidTarget(pl)
         if not pl or pl == LocalPlayer then return false end
@@ -6415,15 +6438,21 @@ do
         local look = cam.CFrame.LookVector
         local origin = cam.CFrame.Position
         local best, bestDist = nil, math.huge
-        local teamCheckEnabled = GetConfig("combat.teamCheck", true)
+
         for _, pl in ipairs(Players:GetPlayers()) do
             if isValidTarget(pl) then
-                local isTeammate = false
-                if teamCheckEnabled and _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
-                    isTeammate = _G.RivalsCHT_TeamCheck.IsTeammate(pl)
+                local isEnemy = true
+                if _G and _G.RivalsCHT_TeamCheck then
+                    if type(_G.RivalsCHT_TeamCheck.IsEnemy) == "function" then
+                        local ok, res = pcall(_G.RivalsCHT_TeamCheck.IsEnemy, pl)
+                        isEnemy = ok and not not res
+                    elseif type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                        local ok, isTeam = pcall(_G.RivalsCHT_TeamCheck.IsTeammate, pl)
+                        isEnemy = not (ok and isTeam)
+                    end
                 end
 
-                if not isTeammate then
+                if isEnemy then
                     local pp = pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")
                     local toTarget = pp.Position - origin
                     local dot = look:Dot(toTarget.Unit)
@@ -6452,16 +6481,21 @@ do
     local function startRespawnWatcher()
         if respawnWatcherActive then return end
         respawnWatcherActive = true
-        local teamCheckEnabled = GetConfig("combat.teamCheck", true)
         for _,p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer then
                 local function onChar(char)
                     if not p or p == LocalPlayer then return end
-                    local isTeammate = false
-                    if teamCheckEnabled and _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
-                        isTeammate = _G.RivalsCHT_TeamCheck.IsTeammate(p)
+                    local isEnemy = true
+                        if _G and _G.RivalsCHT_TeamCheck then
+                        if type(_G.RivalsCHT_TeamCheck.IsEnemy) == "function" then
+                            local ok, res = pcall(_G.RivalsCHT_TeamCheck.IsEnemy, p)
+                            isEnemy = ok and not not res
+                        elseif type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                            local ok, isTeam = pcall(_G.RivalsCHT_TeamCheck.IsTeammate, p)
+                            isEnemy = not (ok and isTeam)
+                        end
                     end
-                    if not isTeammate and isValidTarget(p) then
+                    if isEnemy and isValidTarget(p) then
                         stickTarget = p
                         stopRespawnWatcher()
                     end
@@ -6472,13 +6506,18 @@ do
         end
         table.insert(respawnConns, Players.PlayerAdded:Connect(function(p)
             if p == LocalPlayer then return end
-            local function onChar(char)
-                local teamCheckEnabled2 = GetConfig("combat.teamCheck", true)
-                local isTeammate = false
-                if teamCheckEnabled2 and _G and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
-                    isTeammate = _G.RivalsCHT_TeamCheck.IsTeammate(p)
+                local function onChar(char)
+                local isEnemy = true
+                if _G and _G.RivalsCHT_TeamCheck then
+                    if type(_G.RivalsCHT_TeamCheck.IsEnemy) == "function" then
+                        local ok, res = pcall(_G.RivalsCHT_TeamCheck.IsEnemy, p)
+                        isEnemy = ok and not not res
+                    elseif type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                        local ok, isTeam = pcall(_G.RivalsCHT_TeamCheck.IsTeammate, p)
+                        isEnemy = not (ok and isTeam)
+                    end
                 end
-                if not isTeammate and isValidTarget(p) then
+                if isEnemy and isValidTarget(p) then
                     stickTarget = p
                     stopRespawnWatcher()
                 end
@@ -6525,8 +6564,9 @@ do
                 lastMove = now
                 local tp = stickTarget.Character.PrimaryPart or stickTarget.Character:FindFirstChild("HumanoidRootPart")
                 if tp and tp.Position then
-                    local backPos = tp.Position - (tp.CFrame.LookVector.Unit * BEHIND_DISTANCE)
-                    local dest = CFrame.new(backPos, tp.Position)
+                    local targetPos = tp.Position + Vector3.new(0, 7, 0) -- studs above target
+                    local backPos = targetPos - (tp.CFrame.LookVector.Unit * BEHIND_DISTANCE)
+                    local dest = CFrame.new(backPos, targetPos)
                     if LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
                         local useSmoothing = false
                         local sToggleApi = ToggleAPI and ToggleAPI[useStickSmoothingToggle]
