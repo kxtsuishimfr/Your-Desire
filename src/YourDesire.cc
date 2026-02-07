@@ -4731,28 +4731,10 @@ do
 
                     local p = cam:WorldToViewportPoint(predicted)
                     if (leftDown or forceActive) and persistentEnabled and p and p.Z and p.Z <= 0 then
-                        pcall(function()
-                            local camPos = cam.CFrame.Position
-                            local dir = (predicted - camPos)
-                            local look = cam.CFrame.LookVector
-                            local desiredYaw = math.atan2(dir.X, dir.Z)
-                            local currentYaw = math.atan2(look.X, look.Z)
-                            local deltaYaw = desiredYaw - currentYaw
-                            if deltaYaw > math.pi then deltaYaw = deltaYaw - 2 * math.pi end
-                            if deltaYaw < -math.pi then deltaYaw = deltaYaw + 2 * math.pi end
-                            local desiredPitch = math.atan2(dir.Y, math.sqrt(dir.X * dir.X + dir.Z * dir.Z))
-                            local currentPitch = math.atan2(look.Y, math.sqrt(look.X * look.X + look.Z * look.Z))
-                            local deltaPitch = desiredPitch - currentPitch
-                            local vFov = math.rad(cam.FieldOfView or 70)
-                            local vs = cam.ViewportSize
-                            local aspect = (vs.X > 0 and vs.Y > 0) and (vs.X / vs.Y) or 1
-                            local hFov = 2 * math.atan(math.tan(vFov * 0.5) * aspect)
-                            local pxPerRadX = (hFov ~= 0) and (vs.X / hFov) or vs.X
-                            local pxPerRadY = (vFov ~= 0) and (vs.Y / vFov) or vs.Y
-                            local moveX = deltaYaw * pxPerRadX
-                            local moveY = -deltaPitch * pxPerRadY
-                            mousemoverel(moveX, moveY)
-                        end)
+                        local mousePos = UserInputService:GetMouseLocation()
+                        local moveX = p.X - mousePos.X
+                        local moveY = p.Y - mousePos.Y
+                        mousemoverel(moveX, moveY)
                     end
                     if (leftDown or forceActive) and p.Z and p.Z > 0 then
                         local mousePos = UserInputService:GetMouseLocation()
