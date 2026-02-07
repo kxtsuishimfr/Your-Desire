@@ -6400,7 +6400,7 @@ do
     local stickTarget = nil
     local respawnConns = {}
     local respawnWatcherActive = false
-    local MAX_DISTANCE = 300
+    local MAX_DISTANCE = 100 -- lower this if u tp to lobby
     local BEHIND_DISTANCE = 8 -- studs behind target
 
     local function isValidTarget(pl)
