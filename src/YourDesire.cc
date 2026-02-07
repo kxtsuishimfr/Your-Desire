@@ -4227,133 +4227,100 @@ do
     do
         local teamApi = _G.RivalsCHT_TeamCheck
         teamApi.GetCache = function() return teammateCache end
-        teamApi.IsTeammate = function(playerOrName)
-            if not playerOrName then return false end
+
+        local function resolvePlayer(playerOrName)
+            if not playerOrName then return nil end
             local Players = game:GetService("Players")
-            local pl = nil
             if type(playerOrName) == "string" then
-                pl = Players:FindFirstChild(playerOrName)
-                if not pl then return false end
-            else
-                pl = playerOrName
+                return Players:FindFirstChild(playerOrName)
             end
+            return playerOrName
+        end
+
+        teamApi.IsTeammate = function(playerOrName)
+            local pl = resolvePlayer(playerOrName)
+            if not pl then return false end
             local entry = teammateCache[pl]
             if entry and entry.isTeam ~= nil then return entry.isTeam end
+
             local ok, isTeam = pcall(function()
-                local ch = pl.Character
-                local head = ch and (ch:FindFirstChild("Head") or ch:FindFirstChild("HumanoidRootPart"))
-                if head then
-                    local hrp = head
-                    if hrp and hrp.Name ~= "HumanoidRootPart" then
-                        hrp = head.Parent and head.Parent:FindFirstChild("HumanoidRootPart")
-                    end
-                    if hrp then
-                        local function findLabelNow()
-                            local ok, found = pcall(function()
-                                local f = hrp:FindFirstChild("TeammateLabel", true)
-                                if f then return f end
-                                if ch then
-                                    f = ch:FindFirstChild("TeammateLabel", true)
-                                    if f then return f end
-                                end
-                                local wp = workspace:FindFirstChild(pl.Name)
-                                if wp then
-                                    f = wp:FindFirstChild("TeammateLabel", true)
-                                    if f then return f end
-                                end
-                                return nil
-                            end)
-                            if ok and found then return found end
-                            return nil
-                        end
-
-                        local lbl = findLabelNow()
-                        if not lbl then
-                            pcall(function()
-                                if task and task.delay then
-                                    task.delay(1, function()
-                                        local late = findLabelNow()
-                                        if late then
-                                            teammateCache[pl] = { hrp = hrp, isTeam = true }
-                                        end
-                                    end)
-                                else
-                                    spawn(function() wait(1) local late = findLabelNow() if late then teammateCache[pl] = { hrp = hrp, isTeam = true } end end)
-                                end
-                            end)
-                            return false
-                        end
-
-                        teammateCache[pl] = { hrp = hrp, isTeam = true }
-                        return true
-                    end
+                local Players = game:GetService("Players")
+                local localTeam = Players.LocalPlayer and Players.LocalPlayer:GetAttribute("TeamID")
+                local teamId = pl:GetAttribute("TeamID")
+                if localTeam ~= nil and teamId ~= nil then
+                    local res = (tostring(localTeam) == tostring(teamId))
+                    teammateCache[pl] = { teamId = teamId, isTeam = res }
+                    return res
                 end
+                if Players.LocalPlayer and Players.LocalPlayer.Team and pl.Team then
+                    local res = (Players.LocalPlayer.Team == pl.Team)
+                    teammateCache[pl] = { teamId = teamId, isTeam = res }
+                    return res
+                end
+                teammateCache[pl] = { teamId = teamId, isTeam = false }
                 return false
             end)
             return ok and isTeam or false
         end
+
         teamApi.IsEnemy = function(playerOrName)
-            if not playerOrName then return false end
+            local pl = resolvePlayer(playerOrName)
+            if not pl then return false end
+            local ok, isTeam = pcall(teamApi.IsTeammate, pl)
+            if ok and type(isTeam) == "boolean" then return not isTeam end
             local Players = game:GetService("Players")
-            local pl = nil
-            if type(playerOrName) == "string" then
-                pl = Players:FindFirstChild(playerOrName)
-                if not pl then return false end
-            else
-                pl = playerOrName
-            end
-            if type(teamApi.IsTeammate) == "function" then
-                local ok, res = pcall(teamApi.IsTeammate, pl)
-                if ok and type(res) == "boolean" then
-                    return not res
-                end
-            end
-            -- fallback to Team comparison if available
             local lp = Players.LocalPlayer
             if lp and lp.Team and pl.Team then
                 return lp.Team ~= pl.Team
             end
             return false
         end
+
         teamApi.GetTeammates = function()
+            local Players = game:GetService("Players")
             local t = {}
-            for p,v in pairs(teammateCache) do if v and v.isTeam then table.insert(t,p) end end
+            for _, pl in ipairs(Players:GetPlayers()) do
+                if pl ~= Players.LocalPlayer and teamApi.IsTeammate(pl) then table.insert(t, pl) end
+            end
             return t
         end
+
         teamApi.Invalidate = function(playerOrName)
-            local Players = game:GetService("Players")
-            if not playerOrName then for k in pairs(teammateCache) do teammateCache[k] = nil end; return end
-            local pl = (type(playerOrName) == "string") and Players:FindFirstChild(playerOrName) or playerOrName
+            if not playerOrName then
+                for k in pairs(teammateCache) do teammateCache[k] = nil end
+                return
+            end
+            local pl = resolvePlayer(playerOrName)
             if pl then teammateCache[pl] = nil end
         end
     end
 
     -- ** end of team check ** --
-    local playerRemoveConn
-    pcall(function()
-        playerRemoveConn = Players.PlayerRemoving:Connect(function(p)
-            teammateCache[p] = nil
-        end)
-    end)
-
-    local playerCharConns = {}
-    pcall(function()
-        for _, pl in ipairs(Players:GetPlayers()) do
-            if pl ~= Players.LocalPlayer then
-                if playerCharConns[pl] then pcall(function() playerCharConns[pl]:Disconnect() end) end
-                playerCharConns[pl] = pl.CharacterAdded:Connect(function()
-                    teammateCache[pl] = nil
-                end)
-            end
+    do
+        local Players = game:GetService("Players")
+        local attrConns = {}
+        local function onPlayerAttrChanged(pl)
+            teammateCache[pl] = nil
         end
         Players.PlayerAdded:Connect(function(pl)
             if pl ~= Players.LocalPlayer then
-                playerCharConns[pl] = pl.CharacterAdded:Connect(function()
-                    teammateCache[pl] = nil
-                end)
+                local ok, conn = pcall(function() return pl:GetAttributeChangedSignal("TeamID"):Connect(function() onPlayerAttrChanged(pl) end) end)
+                if ok and conn then attrConns[pl] = conn end
             end
         end)
-    end)
+        Players.PlayerRemoving:Connect(function(pl)
+            teammateCache[pl] = nil
+            local c = attrConns[pl]
+            if c and c.Disconnect then pcall(function() c:Disconnect() end) end
+            attrConns[pl] = nil
+        end)
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if pl ~= Players.LocalPlayer then
+                local ok, conn = pcall(function() return pl:GetAttributeChangedSignal("TeamID"):Connect(function() onPlayerAttrChanged(pl) end) end)
+                if ok and conn then attrConns[pl] = conn end
+            end
+        end
+    end
 
     if GetConfig("combat.aimbotSmoothing", nil) == nil then SetConfig("combat.aimbotSmoothing", smoothingValue) end
     if GetConfig("combat.aimbotFOV", nil) == nil then SetConfig("combat.aimbotFOV", fovMax) end
@@ -6295,6 +6262,7 @@ do
     local keybindConn = nil
     local toggleApi = ToggleAPI[noclipToggle]
     local originalCollisionStates = {}
+    local charAddedConn = nil
     
     local function getBodyParts()
         if not player or not player.Character then return {} end
@@ -6365,6 +6333,21 @@ do
 
     setupKeybindListener()
 
+    local function onCharacterAdded(char)
+        if not noclipEnabled then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part and part:IsA("BasePart") then
+                originalCollisionStates[part] = part.CanCollide
+                part.CanCollide = false
+            end
+        end
+    end
+    if player then
+        pcall(function()
+            charAddedConn = player.CharacterAdded:Connect(onCharacterAdded)
+        end)
+    end
+
     do
         local savedState = GetConfig("rage.noclip", false)
         if toggleApi and toggleApi.Set then
@@ -6378,6 +6361,7 @@ do
     RegisterUnload(function()
         setNoclip(false)
         if keybindConn then keybindConn:Disconnect() end
+        if charAddedConn then charAddedConn:Disconnect() end
     end)
 end
 
@@ -6400,8 +6384,8 @@ do
     local stickTarget = nil
     local respawnConns = {}
     local respawnWatcherActive = false
-    local MAX_DISTANCE = 100 -- lower this if u tp to lobby
-    local BEHIND_DISTANCE = 8 -- studs behind target
+    local MAX_DISTANCE = 300 -- lower this if u tp to lobby
+    local BEHIND_DISTANCE = 6 -- studs behind target
 
     local function isValidTarget(pl)
         if not pl or pl == LocalPlayer then return false end
@@ -6546,7 +6530,7 @@ do
                 lastMove = now
                 local tp = stickTarget.Character.PrimaryPart or stickTarget.Character:FindFirstChild("HumanoidRootPart")
                 if tp and tp.Position then
-                    local targetPos = tp.Position + Vector3.new(0, 7, 0) -- studs above target
+                    local targetPos = tp.Position + Vector3.new(0, 6.4, 0) -- studs above target
                     local backPos = targetPos - (tp.CFrame.LookVector.Unit * BEHIND_DISTANCE)
                     local dest = CFrame.new(backPos, targetPos)
                     if LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
