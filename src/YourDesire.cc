@@ -1808,16 +1808,32 @@ local function makeDropDownList(parent, labelText, items, defaultIndex)
             end)
 
             btn.MouseButton1Click:Connect(function()
-                selectedIndices[i] = not selectedIndices[i]
-                updateBtnVisual(i)
-                selected = { index = i, value = v }
-                display.Text = tostring(v)
-                pcall(function() drop.Visible = false; TweenService:Create(drop, TweenInfo.new(0.12), {Size = UDim2.new(1,0,0,0)}):Play() end)
-                arrow.Text = "▾"
-                pcall(function() TweenService:Create(arrow, TweenInfo.new(0.12), {TextColor3 = COLORS.textDim}):Play() end)
-                local api = DropdownAPI[frame]
-                if api and type(api.OnSelect) == "function" then pcall(api.OnSelect, i, v, selectedIndices[i]) end
-            end)
+                    local singleSelect = (type(defaultIndex) == "number")
+                    if singleSelect then
+                        for k,_ in pairs(selectedIndices) do
+                            selectedIndices[k] = false
+                            if btnRefs[k] then
+                                pcall(function()
+                                    btnRefs[k].BackgroundTransparency = 1
+                                    btnRefs[k].BackgroundColor3 = COLORS.panel
+                                    btnRefs[k].TextColor3 = COLORS.text
+                                end)
+                            end
+                        end
+                        selectedIndices[i] = true
+                        updateBtnVisual(i)
+                    else
+                        selectedIndices[i] = not selectedIndices[i]
+                        updateBtnVisual(i)
+                    end
+                    selected = { index = i, value = v }
+                    display.Text = tostring(v)
+                    pcall(function() drop.Visible = false; TweenService:Create(drop, TweenInfo.new(0.12), {Size = UDim2.new(1,0,0,0)}):Play() end)
+                    arrow.Text = "▾"
+                    pcall(function() TweenService:Create(arrow, TweenInfo.new(0.12), {TextColor3 = COLORS.textDim}):Play() end)
+                    local api = DropdownAPI[frame]
+                    if api and type(api.OnSelect) == "function" then pcall(api.OnSelect, i, v, selectedIndices[i]) end
+                end)
         end
         local total = #items * 28
         drop.Size = UDim2.new(1, 0, 0, math.min(total, 200))
@@ -2320,6 +2336,50 @@ local function BindSliderToConfig(sliderFrame, key, default)
         api.OnChange = function(v)
             SetConfig(key, v)
             if type(prev) == "function" then prev(v) end
+        end
+    end
+end
+
+local function BindDropDownToConfig(dropdownFrame, key, defaultIndex)
+    if not dropdownFrame then return end
+    local api = DropdownAPI[dropdownFrame]
+    if not api then return end
+
+    local saved = GetConfig(key, nil)
+    if type(saved) == "number" then
+        pcall(function() if api.Set then api.Set(saved) end end)
+    elseif type(saved) == "string" then
+        local orig = nil
+        pcall(function() orig = (api.Get and api.Get()) end)
+        local found = false
+        for i = 1, 50 do
+            if api.Set then
+                local ok, err = pcall(function() api.Set(i) end)
+                if not ok then break end
+            end
+            local sel = nil
+            pcall(function() sel = (api.Get and api.Get()) end)
+            if sel and sel.value and tostring(sel.value) == tostring(saved) then
+                found = true
+                break
+            end
+        end
+        if not found then
+            pcall(function() if orig and orig.index and api.Set then api.Set(orig.index) end end)
+        end
+    else
+        if defaultIndex and api.Set then pcall(function() api.Set(defaultIndex) end) end
+    end
+
+    do
+        local prev = api.OnSelect
+        api.OnSelect = function(index, value, on)
+            if type(value) == "string" then
+                SetConfig(key, value)
+            else
+                SetConfig(key, index)
+            end
+            if type(prev) == "function" then pcall(prev, index, value, on) end
         end
     end
 end
@@ -2995,11 +3055,12 @@ do
     end
 end
 
-local useGradientsToggle = makeToggle(customizationTab.LeftCol, "Use Gradients", "If to use gradients in the UI elements.")
+local deviceSpoodDropDownList = makeDropDownList(customizationTab.LeftCol, "Device Spoof", {"PC","Phone","Controller","VR"}, 1)
 
 
 -- ** Save Customization to Config **
 BindToggleToConfig(useGradientsToggle, "customization.useGradients", true)
+BindDropDownToConfig(deviceSpoodDropDownList, "customization.deviceSpoof", 1)
 
 ---------------------------------------------------------------------------
 
@@ -6627,6 +6688,107 @@ do
 end
 
 -- ** Stick to Target Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Spoof Device Logic Starts Here ** --
+do
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local RunService = game:GetService("RunService")
+    local Players = game:GetService("Players")
+
+    local LOCAL_PLAYER = Players.LocalPlayer
+    local interval = 1 
+    local acc = 0
+    local conn
+    local lastSent = nil
+    local remoteCache = nil
+
+    local OPTIONS = {"PC","Phone","Controller","VR"}
+    local MAP = {
+        PC = "MouseKeyboard",
+        Phone = "Touch",
+        Controller = "Gamepad",
+        VR = "VR",
+    }
+
+    local function findRemote()
+        local ok, obj = pcall(function()
+            local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+            if not remotes then return nil end
+            local replication = remotes:FindFirstChild("Replication")
+            if not replication then return nil end
+            local fighter = replication:FindFirstChild("Fighter")
+            if not fighter then return nil end
+            return fighter:FindFirstChild("SetControls")
+        end)
+        if ok then return obj end
+        return nil
+    end
+
+    local function resolveSelection()
+        local sel = nil
+        if type(deviceSpoodDropDownList) == "table" and type(deviceSpoodDropDownList.Get) == "function" then
+            local ok, v = pcall(deviceSpoodDropDownList.Get)
+            if ok and v ~= nil then
+                if type(v) == "string" then sel = v
+                elseif type(v) == "number" then sel = OPTIONS[v]
+                elseif type(v) == "table" then
+                    if #v >= 1 then sel = v[1] end
+                end
+            end
+        end
+        if sel == nil and type(GetConfig) == "function" then
+            local cfg = GetConfig("customization.deviceSpoof", nil)
+            if type(cfg) == "string" then
+                sel = cfg
+            elseif type(cfg) == "number" then
+                sel = OPTIONS[cfg]
+            end
+        end
+        return sel
+    end
+
+    local function sendIfNeeded(mapped)
+        if not mapped or mapped == "" then return end
+        if remoteCache == nil then remoteCache = findRemote() end
+        if remoteCache == nil then return end
+        if lastSent == mapped then return end
+        pcall(function()
+            remoteCache:FireServer(mapped)
+        end)
+        lastSent = mapped
+    end
+
+    conn = RunService.Heartbeat:Connect(function(dt)
+        acc = acc + dt
+        if acc < interval then return end
+        acc = acc - interval
+
+        local sel = resolveSelection()
+        if not sel then return end
+        local mapped = MAP[sel] or sel
+        sendIfNeeded(mapped)
+    end)
+
+    pcall(function()
+        local sel = resolveSelection()
+        if sel then
+            local mapped = MAP[sel] or sel
+            remoteCache = findRemote() or remoteCache
+            if remoteCache then
+                pcall(function() remoteCache:FireServer(mapped) end)
+                lastSent = mapped
+            end
+        end
+    end)
+
+    RegisterUnload(function()
+        if conn and conn.Disconnect then pcall(function() conn:Disconnect() end) end
+    end)
+end
+
+-- ** Spoof Device Logic Ends Here ** --
 
 ---------------------------------------------------------------------------
 
