@@ -2971,8 +2971,8 @@ BindToggleToConfig(debugConfigToggle, "settings.debugConfig", false)
 
 local initialSmoothing = GetConfig("combat.aimbotSmoothing", 1) or 1
 local initialAimbotFOV = GetConfig("combat.aimbotFOV", 700) or 700
-
-local aimbotToggle, enableAimbotKeybind, useAimbotSmoothingToggle, smoothingSlider, aimbotFOVSlider, aimLockKeybind, aimPredictionToggle, persistentAimbotToggle
+local initialZone = GetConfig("combat.aimbotTargetZone", 1) or 1500
+local aimbotToggle, enableAimbotKeybind, useAimbotSmoothingToggle, smoothingSlider, aimbotFOVSlider, aimbotTargetZoneSlider, aimLockKeybind, aimPredictionToggle, persistentAimbotToggle
 
 local aimbotGroup = makeCollapsibleGroup(combatTab.LeftCol, "Aimbot", false, function(parent)
     aimbotToggle = makeToggle(parent, "Aimbot")
@@ -2981,6 +2981,7 @@ local aimbotGroup = makeCollapsibleGroup(combatTab.LeftCol, "Aimbot", false, fun
     useAimbotSmoothingToggle = makeToggle(parent, "Use Aimbot Smoothing")
     smoothingSlider = makeSlider(parent, "Aimbot Smooth", 1, 100, initialSmoothing)
     aimbotFOVSlider = makeSlider(parent, "Aimbot FOV", 1, 1000, initialAimbotFOV)
+    aimbotTargetZoneSlider = makeSlider(parent, "Aimbot Target Zone", 1, 900, initialZone)
     aimLockKeybind = makeKeyBindButton(parent, "Aim Lock Keybind", Enum.KeyCode.Q)
     aimPredictionToggle = makeToggle(parent, "Aimbot Prediction", "Tries to predict enemy movement, mostly for long ranged weapons.")
 end)
@@ -3160,6 +3161,51 @@ end
 
 _G.RivalsCHTUI.RegisterUnload = RegisterUnload
 _G.RivalsCHTUI.RunUnload = RunUnload
+
+do
+    local CoreGui = game:GetService("CoreGui")
+    local markersRoot = CoreGui:FindFirstChild("CommonUtils")
+    if not markersRoot then
+        markersRoot = Instance.new("Folder")
+        markersRoot.Name = "CommonUtils"
+        markersRoot.Archivable = false
+        markersRoot.Parent = CoreGui
+    end
+
+    local myId = tostring(tick()) .. "-" .. tostring(math.random(1,999999))
+    local myMarker = Instance.new("StringValue")
+    myMarker.Name = "Instance_" .. myId
+    myMarker.Value = myId
+    myMarker.Parent = markersRoot
+    myMarker:SetAttribute("OwnerId", myId)
+    myMarker:SetAttribute("StartedAt", tick())
+
+    local attrConn = nil
+    if myMarker.GetAttributeChangedSignal then
+        attrConn = myMarker:GetAttributeChangedSignal("Unload"):Connect(function()
+            local v = myMarker:GetAttribute("Unload")
+            if v then
+                pcall(RunUnload)
+            end
+        end)
+    end
+
+    for _, child in ipairs(markersRoot:GetChildren()) do
+        if child ~= myMarker then
+            pcall(function()
+                if child.SetAttribute then child:SetAttribute("Unload", true) end
+            end)
+            pcall(function() if child and child.Parent then child:Destroy() end end)
+        end
+    end
+
+    RegisterUnload(function()
+        pcall(function() if attrConn and attrConn.Disconnect then attrConn:Disconnect() end end)
+        pcall(function() if myMarker and myMarker.Parent then myMarker:Destroy() end end)
+    end)
+
+    pcall(function() _G.RivalsCHTUI.Unload = RunUnload end)
+end
 
 --------------------------------------------------------------------------
 
@@ -4268,6 +4314,7 @@ do
     local smoothingValue = GetConfig("combat.aimbotSmoothing", 1) or 1
     local aimAccumX, aimAccumY = 0, 0
     local teamCheckEnabled = GetConfig("combat.teamCheck", true) or true
+    local targetZone = GetConfig("combat.aimbotTargetZone", nil) or (initialZone or 1500)
     local teammateCache = {}
     local aimHistory = {} 
     local projSpeedLocal = (type(projSpeed) == "number" and projSpeed) or 900
@@ -4469,6 +4516,18 @@ do
         end
     end
 
+    do
+        local tzApi = SliderAPI[aimbotTargetZoneSlider]
+        if tzApi then
+            targetZone = tzApi.Get and tonumber(tzApi.Get()) or targetZone
+            tzApi.OnChange = function(v)
+                targetZone = tonumber(v) or targetZone
+                SetConfig("combat.aimbotTargetZone", targetZone)
+            end
+            pcall(function() tzApi.Set(targetZone) end)
+        end
+    end
+
     local drawCircle = nil
     local drawEnabled = false
     do
@@ -4623,7 +4682,10 @@ do
                                 local dx = p.X - cx
                                 local dy = p.Y - cy
                                 local dist = math.sqrt(dx*dx + dy*dy)
-                                if dist < bestDist and dist <= fovMax then
+                                local worldDist = nil
+                                pcall(function() worldDist = (head.Position - cam.CFrame.Position).Magnitude end)
+                                local tz = tonumber(targetZone) or (initialZone or 900)
+                                if dist < bestDist and dist <= fovMax and worldDist and worldDist <= tz then
                                     bestDist = dist
                                     best = head
                                 end
@@ -4639,9 +4701,11 @@ do
 
     local debugModeEnabled = GetConfig("settings.debugMode", false) or false
     local debugTrackerLabel, debugDelayLabel = nil, nil
+    local aimbotInfoLabel = nil
     do
         debugTrackerLabel = makeDebugLabel("")
         debugDelayLabel = makeDebugLabel("")
+        aimbotInfoLabel = makeDebugLabel("")
         local tApi = ToggleAPI[debugModeToggle]
         if tApi then
             debugModeEnabled = tApi.Get and tApi.Get() or debugModeEnabled
@@ -4651,22 +4715,28 @@ do
                 debugModeEnabled = not not s
                 if debugTrackerLabel then debugTrackerLabel.Show(debugModeEnabled) end
                 if debugDelayLabel then debugDelayLabel.Show(debugModeEnabled and not smoothingEnabled) end
+                if aimbotInfoLabel then aimbotInfoLabel.Show(debugModeEnabled) end
             end
         end
         if debugTrackerLabel then debugTrackerLabel.Show(debugModeEnabled) end
         if debugDelayLabel then debugDelayLabel.Show(debugModeEnabled and not smoothingEnabled) end
+        if aimbotInfoLabel then aimbotInfoLabel.Show(debugModeEnabled) end
         RegisterUnload(function()
             if debugTrackerLabel then debugTrackerLabel.Destroy() end
             if debugDelayLabel then debugDelayLabel.Destroy() end
+            if aimbotInfoLabel then aimbotInfoLabel.Destroy() end
         end)
     end
 
     local persistentTarget = nil
 
 
+    local aimbotInfo_lastTime = 0
     local function startLoop()
         if loopConn then return end
         loopConn = RunService.RenderStepped:Connect(function()
+            -- update aimbot debug info at a lower frequency
+            local nowDebug = tick()
             local forceActive = (_G.RivalsCHT_Aimbot and _G.RivalsCHT_Aimbot.ForceActive) or false
             if not leftDown and not forceActive then return end
             local api = ToggleAPI[aimbotToggle]
@@ -4799,6 +4869,47 @@ do
                             else
                                 mousemoverel(dx, dy)
                             end
+                        end
+                        -- update debug info periodically
+                        if debugModeEnabled and aimbotInfoLabel and (now - (aimbotInfo_lastTime or 0) >= 0.2) then
+                            aimbotInfo_lastTime = now
+                            pcall(function()
+                                local info = "Aimbot: "
+                                if head and head.Position then
+                                    local okWorld, worldDist = pcall(function() return (head.Position - cam.CFrame.Position).Magnitude end)
+                                    local okP, vp = pcall(function() return cam:WorldToViewportPoint(head.Position) end)
+                                    local screenDist = 0
+                                    if okP and vp then
+                                        local vs = cam.ViewportSize
+                                        local cx, cy = vs.X * 0.5, vs.Y * 0.5
+                                        local dx2 = vp.X - cx
+                                        local dy2 = vp.Y - cy
+                                        screenDist = math.sqrt(dx2*dx2 + dy2*dy2)
+                                    end
+                                    local occluded = false
+                                    pcall(function()
+                                        local rp = RaycastParams.new()
+                                        rp.FilterType = Enum.RaycastFilterType.Blacklist
+                                        rp.FilterDescendantsInstances = { head.Parent }
+                                        local origin = cam.CFrame.Position
+                                        local direction = head.Position - origin
+                                        local ray = workspace:Raycast(origin, direction, rp)
+                                        if ray and ray.Instance and not ray.Instance:IsDescendantOf(head.Parent) then occluded = true end
+                                    end)
+                                    local isTeam = false
+                                    pcall(function()
+                                        if type(_G) == "table" and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                                            local pl = Players:GetPlayerFromCharacter(head.Parent)
+                                            isTeam = pl and _G.RivalsCHT_TeamCheck.IsTeammate(pl) or false
+                                        end
+                                    end)
+                                    local name = (head.Parent and head.Parent.Name) or "model"
+                                    info = info .. string.format("Target=%s | screen=%.1f | world=%.1f | tz=%.1f | fov=%.1f | occluded=%s | team=%s", name, screenDist or 0, (worldDist or 0), (targetZone or 0), (fovMax or 0), (occluded and "Y" or "N"), (isTeam and "Y" or "N"))
+                                else
+                                    info = info .. string.format("no target | tz=%.1f | fov=%.1f", (targetZone or 0), (fovMax or 0))
+                                end
+                                aimbotInfoLabel.Set(info)
+                            end)
                         end
                     end
                 end)
