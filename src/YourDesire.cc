@@ -2972,22 +2972,33 @@ BindToggleToConfig(debugConfigToggle, "settings.debugConfig", false)
 local initialSmoothing = GetConfig("combat.aimbotSmoothing", 1) or 1
 local initialAimbotFOV = GetConfig("combat.aimbotFOV", 700) or 700
 local initialZone = GetConfig("combat.aimbotTargetZone", 1) or 1500
-local aimbotToggle, enableAimbotKeybind, useAimbotSmoothingToggle, smoothingSlider, aimbotFOVSlider, aimbotTargetZoneSlider, aimLockKeybind, aimPredictionToggle, persistentAimbotToggle
+local aimbotToggle, enableAimbotKeybind, useAimbotSmoothingToggle, smoothingSlider, aimbotFOVSlider, aimnbotTargetZoneToggle, aimbotTargetZoneSlider, aimLockKeybind, aimPredictionToggle, persistentAimbotToggle
 
-local aimbotGroup = makeCollapsibleGroup(combatTab.LeftCol, "Aimbot", false, function(parent)
+-- Aimbot: General settings
+local aimbotGroup = makeCollapsibleGroup(combatTab.LeftCol, "Aimbot — General", false, function(parent)
     aimbotToggle = makeToggle(parent, "Aimbot")
     enableAimbotKeybind = makeKeyBindButton(parent, "Enable Aimbot", Enum.KeyCode.V)
+    aimLockKeybind = makeKeyBindButton(parent, "Aim Lock Keybind", Enum.KeyCode.Q)
     persistentAimbotToggle = makeToggle(parent, "Persistent Aimbot", "Doesn't let the enemy escape ur fov once locked onto")
+end)
+
+-- Aimbot: Behavior / Smoothing
+local aimbotBehaviorGroup = makeCollapsibleGroup(combatTab.LeftCol, "Aimbot — Behavior", false, function(parent)
     useAimbotSmoothingToggle = makeToggle(parent, "Use Aimbot Smoothing")
     smoothingSlider = makeSlider(parent, "Aimbot Smooth", 1, 100, initialSmoothing)
-    aimbotFOVSlider = makeSlider(parent, "Aimbot FOV", 1, 1000, initialAimbotFOV)
-    aimbotTargetZoneSlider = makeSlider(parent, "Aimbot Target Zone", 1, 900, initialZone)
-    aimLockKeybind = makeKeyBindButton(parent, "Aim Lock Keybind", Enum.KeyCode.Q)
     aimPredictionToggle = makeToggle(parent, "Aimbot Prediction", "Tries to predict enemy movement, mostly for long ranged weapons.")
 end)
 
-local drawFovCircleToggle = makeToggle(combatTab.LeftCol, "Draw FOV Circle")
-local targetBehindWallsToggle = makeToggle(combatTab.LeftCol, "Target Behind Walls", "Allows the aimbot to target enemies behind walls.")
+-- Aimbot: FOV / Zone
+local aimbotFOVGroup = makeCollapsibleGroup(combatTab.LeftCol, "Aimbot — Zone", false, function(parent)
+    aimbotFOVSlider = makeSlider(parent, "Aimbot FOV", 1, 1000, initialAimbotFOV)
+    drawFovCircleToggle = makeToggle(parent, "Draw FOV Circle")
+    aimnbotTargetZoneToggle = makeToggle(parent, "Use Target Zone", "Distance based aimbot check to ignore ppl who r far away")
+    aimbotTargetZoneSlider = makeSlider(parent, "Aimbot Target Zone", 1, 900, initialZone)
+    targetBehindWallsToggle = makeToggle(parent, "Target Behind Walls", "Allows the aimbot to target enemies behind walls.")
+end)
+
+-- Other combat toggles
 local teamCheckToggle = makeToggle(combatTab.LeftCol, "Team Check")
 local sixthSenseToggle = makeToggle(combatTab.RightCol, "Sixth Sense", "Tells u where traps are and if the enemy is holding a katana.")
 
@@ -3004,6 +3015,7 @@ BindToggleToConfig(sixthSenseToggle, "combat.sixthSense", false)
 BindToggleToConfig(aimPredictionToggle, "combat.aimPrediction", false)
 BindToggleToConfig(persistentAimbotToggle, "combat.persistentAimbot", false)
 BindToggleToConfig(autoShootToggle, "combat.autoShoot", false)
+BindToggleToConfig(aimnbotTargetZoneToggle, "combat.aimbotTargetZoneEnabled", false)
 
 -------------------------------------------------------------------------
 
@@ -4315,6 +4327,7 @@ do
     local aimAccumX, aimAccumY = 0, 0
     local teamCheckEnabled = GetConfig("combat.teamCheck", true) or true
     local targetZone = GetConfig("combat.aimbotTargetZone", nil) or (initialZone or 1500)
+    local useTargetZone = GetConfig("combat.aimbotTargetZoneEnabled", false) or false
     local teammateCache = {}
     local aimHistory = {} 
     local projSpeedLocal = (type(projSpeed) == "number" and projSpeed) or 900
@@ -4528,6 +4541,19 @@ do
         end
     end
 
+    do
+        local tApi = ToggleAPI[aimnbotTargetZoneToggle]
+        if tApi then
+            useTargetZone = tApi.Get and tApi.Get() or useTargetZone
+            local prev = tApi.OnToggle
+            tApi.OnToggle = function(s)
+                if prev then pcall(prev, s) end
+                useTargetZone = not not s
+                SetConfig("combat.aimbotTargetZoneEnabled", useTargetZone)
+            end
+        end
+    end
+
     local drawCircle = nil
     local drawEnabled = false
     do
@@ -4685,7 +4711,8 @@ do
                                 local worldDist = nil
                                 pcall(function() worldDist = (head.Position - cam.CFrame.Position).Magnitude end)
                                 local tz = tonumber(targetZone) or (initialZone or 900)
-                                if dist < bestDist and dist <= fovMax and worldDist and worldDist <= tz then
+                                local passesZone = (not useTargetZone) or (worldDist and worldDist <= tz)
+                                if dist < bestDist and dist <= fovMax and passesZone then
                                     bestDist = dist
                                     best = head
                                 end
@@ -4904,9 +4931,9 @@ do
                                         end
                                     end)
                                     local name = (head.Parent and head.Parent.Name) or "model"
-                                    info = info .. string.format("Target=%s | screen=%.1f | world=%.1f | tz=%.1f | fov=%.1f | occluded=%s | team=%s", name, screenDist or 0, (worldDist or 0), (targetZone or 0), (fovMax or 0), (occluded and "Y" or "N"), (isTeam and "Y" or "N"))
+                                    info = info .. string.format("Target=%s | screen=%.1f | world=%.1f | tz=%.1f | fov=%.1f | useTZ=%s | occluded=%s | team=%s", name, screenDist or 0, (worldDist or 0), (targetZone or 0), (fovMax or 0), (useTargetZone and "Y" or "N"), (occluded and "Y" or "N"), (isTeam and "Y" or "N"))
                                 else
-                                    info = info .. string.format("no target | tz=%.1f | fov=%.1f", (targetZone or 0), (fovMax or 0))
+                                    info = info .. string.format("no target | tz=%.1f | fov=%.1f | useTZ=%s", (targetZone or 0), (fovMax or 0), (useTargetZone and "Y" or "N"))
                                 end
                                 aimbotInfoLabel.Set(info)
                             end)
