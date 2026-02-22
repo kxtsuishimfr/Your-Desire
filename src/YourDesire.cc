@@ -2979,7 +2979,7 @@ local aimbotGroup = makeCollapsibleGroup(combatTab.LeftCol, "Aimbot — General"
     aimbotToggle = makeToggle(parent, "Aimbot")
     enableAimbotKeybind = makeKeyBindButton(parent, "Enable Aimbot", Enum.KeyCode.V)
     aimLockKeybind = makeKeyBindButton(parent, "Aim Lock Keybind", Enum.KeyCode.Q)
-    persistentAimbotToggle = makeToggle(parent, "Persistent Aimbot", "Doesn't let the enemy escape ur fov once locked onto")
+    persistentAimbotToggle = makeToggle(parent, "Persistent Aimbot", "Doesn't let the enemy escape ur fov once locked onto them even if they get out of FOV")
 end)
 
 -- Aimbot: Behavior / Smoothing
@@ -2993,7 +2993,7 @@ end)
 local aimbotFOVGroup = makeCollapsibleGroup(combatTab.LeftCol, "Aimbot — Zone", false, function(parent)
     aimbotFOVSlider = makeSlider(parent, "Aimbot FOV", 1, 1000, initialAimbotFOV)
     drawFovCircleToggle = makeToggle(parent, "Draw FOV Circle")
-    aimnbotTargetZoneToggle = makeToggle(parent, "Use Target Zone", "Distance based aimbot check to ignore ppl who r far away")
+    aimnbotTargetZoneToggle = makeToggle(parent, "Use Target Zone", "Distance based aimbot check to ignore ppl who r far away, depending on target zone")
     aimbotTargetZoneSlider = makeSlider(parent, "Aimbot Target Zone", 1, 900, initialZone)
     targetBehindWallsToggle = makeToggle(parent, "Target Behind Walls", "Allows the aimbot to target enemies behind walls.")
 end)
@@ -3030,6 +3030,9 @@ local stickGroup = makeCollapsibleGroup(rageTab.LeftCol, "Stick to Players", fal
     useStickSmoothingToggle = makeToggle(parent, "Use Smooth Sticking", "Smoothly moves you towards the target instead of teleporting.")
     smoothStickingSlider = makeSlider(parent, "Smooth Sticking", 0, 100, initialIntensity)
 end)
+local flyToggle = makeToggle(rageTab.LeftCol, "Fly", "Let's u fly around. SHIFT TO FLY DOWN AND SPACE TO FLY UP")
+local flyKeybind = makeKeyBindButton(rageTab.LeftCol, "Fly Keybind", Enum.KeyCode.N)
+local flySpeedSlider = makeSlider(rageTab.RightCol, "Fly Speed", 0, 400, initialSpeed)
 
 
 
@@ -3040,6 +3043,9 @@ BindToggleToConfig(stickToToggle, "rage.stickToTarget", false)
 BindKeybindToConfig(stickToKeybind, "rage.stickToTargetKeybind", Enum.KeyCode.U)
 BindToggleToConfig(useStickSmoothingToggle, "rage.useStickSmoothing", false)
 BindSliderToConfig(smoothStickingSlider, "rage.smoothStickingIntensity", 20)
+BindToggleToConfig(flyToggle, "rage.fly", false)
+BindKeybindToConfig(flyKeybind, "rage.flyKeybind", Enum.KeyCode.N)
+BindSliderToConfig(flySpeedSlider, "rage.flySpeed", 20)
 ---------------------------------------------------------------------------
 
 -- ** Customization Tab Stuff
@@ -3352,7 +3358,20 @@ local WeaponDefs = {
     "Energy Shield",
     "Masterpiece",
     "Glorious Riot Shield"
+    },
+    
+    Knife = {
+    "Keyrambit",
+    "Keylisong",
+    "Karambit",
+    "Balisong",
+    "Candy Cane",
+    "Machete",
+    "Chancla",
+    "Glorious Knife",
+    "Armature Knife"
 },
+
 
 -- ** Secondary Weapons ** --
 Spray = {
@@ -4316,6 +4335,7 @@ end
 ---------------------------------------------------------------------------
 
 -- ** Aimbot Logic Starts Here **
+
 do
     local KEY_CONFIG = "combat.enableAimbotKey"
     local fovMax = GetConfig("combat.aimbotFOV", 700) or 700
@@ -4759,10 +4779,10 @@ do
 
 
     local aimbotInfo_lastTime = 0
+    local _aim_lastTime = nil
     local function startLoop()
         if loopConn then return end
         loopConn = RunService.RenderStepped:Connect(function()
-            -- update aimbot debug info at a lower frequency
             local nowDebug = tick()
             local forceActive = (_G.RivalsCHT_Aimbot and _G.RivalsCHT_Aimbot.ForceActive) or false
             if not leftDown and not forceActive then return end
@@ -4801,145 +4821,144 @@ do
                 end
             end
             if head and head.Position then
-                pcall(function()
-                    local predicted = head.Position
-                    local root = head.Parent and (head.Parent:FindFirstChild("HumanoidRootPart") or head.Parent:FindFirstChild("Torso"))
-                    local now = tick()
-                    local estVel = nil
-                    if root and root:IsA("BasePart") then
-                        estVel = root.Velocity
+                local predicted = head.Position
+                local root = head.Parent and (head.Parent:FindFirstChild("HumanoidRootPart") or head.Parent:FindFirstChild("Torso"))
+                local now = tick()
+                local frameDt = 0
+                if _aim_lastTime then frameDt = now - _aim_lastTime end
+                _aim_lastTime = now
+                local estVel = nil
+                if root and root:IsA("BasePart") then
+                    estVel = root.Velocity
+                end
+                local histId = (head.Parent and head.Parent.Name) or tostring(head)
+                local prev = aimHistory[histId]
+                if (not estVel or (estVel and estVel.Magnitude < 0.001)) and prev and prev.pos and prev.t then
+                    local dt = now - prev.t
+                    if dt > 0 and dt <= 0.05 then
+                        estVel = (head.Position - prev.pos) / dt
                     end
-                    local histId = (head.Parent and head.Parent.Name) or tostring(head)
-                    local prev = aimHistory[histId]
-                    pcall(function()
-                        if debugModeEnabled and debugTrackerLabel then
-                            local method = smoothingEnabled and "mousemoverel (smoothed)" or "mousemoverel (unsmoothed)"
-                            debugTrackerLabel.Set("Using " .. method .. " ; smoothing is " .. (smoothingEnabled and "ON" or "OFF"))
-                        end
-                        if debugModeEnabled and not smoothingEnabled and debugDelayLabel then
-                            local delayMs = 0
-                            if prev and prev.t then delayMs = (now - prev.t) * 1000 end
-                            debugDelayLabel.Set("Delay between head and cursor: " .. tostring(math.floor(delayMs)) .. " ms")
-                        end
-                    end)
-                    if (not estVel or (estVel and estVel.Magnitude < 0.001)) and prev and prev.pos and prev.t then
-                        local dt = now - prev.t
-                        if dt > 0 then
-                            estVel = (head.Position - prev.pos) / dt
-                        end
-                    end
-                    aimHistory[histId] = { pos = head.Position, t = now }
+                end
+                aimHistory[histId] = { pos = head.Position, t = now }
 
-                    if root and root:IsA("BasePart") then
-                        local okDist, dist = pcall(function() return (head.Position - cam.CFrame.Position).Magnitude end)
-                        local travel = (type(projSpeedLocal) == "number" and projSpeedLocal) or 900
-                        if okDist and dist and travel and travel > 0 then
-                            local tt = dist / travel
-                                if estVel and aimPredictionEnabled then
-                                    local dir = (head.Position - cam.CFrame.Position)
-                                    local dirUnit = (dir.Magnitude > 0) and (dir / dir.Magnitude) or Vector3.new(0,0,0)
-                                    local forwardComp = estVel:Dot(dirUnit)
-                                    local lateral = estVel - dirUnit * forwardComp
-                                    local lateralMag = lateral.Magnitude
-                                    local leadFactor = 1
-                                    if tt < 0.04 then
-                                        leadFactor = 0
-                                    elseif tt < 0.12 then
-                                        leadFactor = (tt - 0.04) / (0.12 - 0.04)
-                                    else
-                                        leadFactor = 1
-                                    end
-                                    predicted = predicted + lateral * tt * leadScaleLocal * leadFactor
-                                end
-                        end
-                    end
-
-                    local p = cam:WorldToViewportPoint(predicted)
-                    if (leftDown or forceActive) and persistentEnabled and p and p.Z and p.Z <= 0 then
-                        local mousePos = UserInputService:GetMouseLocation()
-                        local moveX = p.X - mousePos.X
-                        local moveY = p.Y - mousePos.Y
-                        mousemoverel(moveX, moveY)
-                    end
-                    if (leftDown or forceActive) and p.Z and p.Z > 0 then
-                        local mousePos = UserInputService:GetMouseLocation()
-                        local dx = p.X - mousePos.X
-                        local dy = p.Y - mousePos.Y
-                        local dist = math.sqrt(dx*dx + dy*dy)
-                        if dist > 0.5 then
-                            if smoothingEnabled then
-                                local sv = tonumber(smoothingValue) or 1
-                                if sv <= 0 then sv = 1 end
-                                aimAccumX = aimAccumX + (dx / sv)
-                                aimAccumY = aimAccumY + (dy / sv)
-                                local toMoveX = 0
-                                local toMoveY = 0
-                                if aimAccumX >= 1 then
-                                    toMoveX = math.floor(aimAccumX)
-                                    aimAccumX = aimAccumX - toMoveX
-                                elseif aimAccumX <= -1 then
-                                    toMoveX = math.ceil(aimAccumX)
-                                    aimAccumX = aimAccumX - toMoveX
-                                end
-                                if aimAccumY >= 1 then
-                                    toMoveY = math.floor(aimAccumY)
-                                    aimAccumY = aimAccumY - toMoveY
-                                elseif aimAccumY <= -1 then
-                                    toMoveY = math.ceil(aimAccumY)
-                                    aimAccumY = aimAccumY - toMoveY
-                                end
-                                if toMoveX ~= 0 or toMoveY ~= 0 then
-                                    toMoveX = math.clamp(toMoveX, -150, 150)
-                                    toMoveY = math.clamp(toMoveY, -150, 150)
-                                    mousemoverel(toMoveX, toMoveY)
-                                end
+                if root and root:IsA("BasePart") then
+                    local okDist, dist = pcall(function() return (head.Position - cam.CFrame.Position).Magnitude end)
+                    local travel = (type(projSpeedLocal) == "number" and projSpeedLocal) or 900
+                    if okDist and dist and travel and travel > 0 then
+                        local tt = dist / travel
+                        if estVel and aimPredictionEnabled then
+                            local dir = (head.Position - cam.CFrame.Position)
+                            local dirUnit = (dir.Magnitude > 0) and (dir / dir.Magnitude) or Vector3.new(0,0,0)
+                            local forwardComp = estVel:Dot(dirUnit)
+                            local lateral = estVel - dirUnit * forwardComp
+                            local lateralMag = lateral.Magnitude
+                            local leadFactor = 1
+                            if tt < 0.04 then
+                                leadFactor = 0
+                            elseif tt < 0.12 then
+                                leadFactor = (tt - 0.04) / (0.12 - 0.04)
                             else
-                                mousemoverel(dx, dy)
+                                leadFactor = 1
                             end
-                        end
-                        -- update debug info periodically
-                        if debugModeEnabled and aimbotInfoLabel and (now - (aimbotInfo_lastTime or 0) >= 0.2) then
-                            aimbotInfo_lastTime = now
-                            pcall(function()
-                                local info = "Aimbot: "
-                                if head and head.Position then
-                                    local okWorld, worldDist = pcall(function() return (head.Position - cam.CFrame.Position).Magnitude end)
-                                    local okP, vp = pcall(function() return cam:WorldToViewportPoint(head.Position) end)
-                                    local screenDist = 0
-                                    if okP and vp then
-                                        local vs = cam.ViewportSize
-                                        local cx, cy = vs.X * 0.5, vs.Y * 0.5
-                                        local dx2 = vp.X - cx
-                                        local dy2 = vp.Y - cy
-                                        screenDist = math.sqrt(dx2*dx2 + dy2*dy2)
-                                    end
-                                    local occluded = false
-                                    pcall(function()
-                                        local rp = RaycastParams.new()
-                                        rp.FilterType = Enum.RaycastFilterType.Blacklist
-                                        rp.FilterDescendantsInstances = { head.Parent }
-                                        local origin = cam.CFrame.Position
-                                        local direction = head.Position - origin
-                                        local ray = workspace:Raycast(origin, direction, rp)
-                                        if ray and ray.Instance and not ray.Instance:IsDescendantOf(head.Parent) then occluded = true end
-                                    end)
-                                    local isTeam = false
-                                    pcall(function()
-                                        if type(_G) == "table" and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
-                                            local pl = Players:GetPlayerFromCharacter(head.Parent)
-                                            isTeam = pl and _G.RivalsCHT_TeamCheck.IsTeammate(pl) or false
-                                        end
-                                    end)
-                                    local name = (head.Parent and head.Parent.Name) or "model"
-                                    info = info .. string.format("Target=%s | screen=%.1f | world=%.1f | tz=%.1f | fov=%.1f | useTZ=%s | occluded=%s | team=%s", name, screenDist or 0, (worldDist or 0), (targetZone or 0), (fovMax or 0), (useTargetZone and "Y" or "N"), (occluded and "Y" or "N"), (isTeam and "Y" or "N"))
-                                else
-                                    info = info .. string.format("no target | tz=%.1f | fov=%.1f | useTZ=%s", (targetZone or 0), (fovMax or 0), (useTargetZone and "Y" or "N"))
-                                end
-                                aimbotInfoLabel.Set(info)
-                            end)
+                            predicted = predicted + lateral * tt * leadScaleLocal * leadFactor
                         end
                     end
-                end)
+                end
+
+                local okP, p = pcall(function() return cam:WorldToViewportPoint(predicted) end)
+                if not okP or not p then p = nil end
+                if (leftDown or forceActive) and persistentEnabled and p and p.Z and p.Z <= 0 then
+                    local mousePos = UserInputService:GetMouseLocation()
+                    local moveX = p.X - mousePos.X
+                    local moveY = p.Y - mousePos.Y
+                    mousemoverel(moveX, moveY)
+                end
+                if (leftDown or forceActive) and p and p.Z and p.Z > 0 then
+                    local mousePos = UserInputService:GetMouseLocation()
+                    local dx = p.X - mousePos.X
+                    local dy = p.Y - mousePos.Y
+                    local dist = math.sqrt(dx*dx + dy*dy)
+                    if dist > 0.5 then
+                        local fpsScale = 1
+                        if frameDt and frameDt > 0 then
+                            local raw = 60 * frameDt
+                            local scale = math.sqrt(raw)
+                            if scale < 0.9 then scale = 0.9 end
+                            if scale > 2 then scale = 2 end
+                            fpsScale = scale
+                        end
+                        if smoothingEnabled then
+                            local sv = tonumber(smoothingValue) or 1
+                            if sv <= 0 then sv = 1 end
+                            aimAccumX = aimAccumX + (dx / sv)
+                            aimAccumY = aimAccumY + (dy / sv)
+                            local toMoveX = 0
+                            local toMoveY = 0
+                            if aimAccumX >= 1 then
+                                toMoveX = math.floor(aimAccumX)
+                                aimAccumX = aimAccumX - toMoveX
+                            elseif aimAccumX <= -1 then
+                                toMoveX = math.ceil(aimAccumX)
+                                aimAccumX = aimAccumX - toMoveX
+                            end
+                            if aimAccumY >= 1 then
+                                toMoveY = math.floor(aimAccumY)
+                                aimAccumY = aimAccumY - toMoveY
+                            elseif aimAccumY <= -1 then
+                                toMoveY = math.ceil(aimAccumY)
+                                aimAccumY = aimAccumY - toMoveY
+                            end
+                            if toMoveX ~= 0 or toMoveY ~= 0 then
+                                toMoveX = math.clamp(toMoveX * fpsScale, -150, 150)
+                                toMoveY = math.clamp(toMoveY * fpsScale, -150, 150)
+                                mousemoverel(toMoveX, toMoveY)
+                            end
+                        else
+                            mousemoverel(dx * fpsScale, dy * fpsScale)
+                        end
+                    end
+                    if debugModeEnabled and aimbotInfoLabel and (now - (aimbotInfo_lastTime or 0) >= 0.2) then
+                        aimbotInfo_lastTime = now
+                        local okInfo, info = pcall(function()
+                            local info = "Aimbot: "
+                            if head and head.Position then
+                                local okWorld, worldDist = pcall(function() return (head.Position - cam.CFrame.Position).Magnitude end)
+                                local okP2, vp = pcall(function() return cam:WorldToViewportPoint(head.Position) end)
+                                local screenDist = 0
+                                if okP2 and vp then
+                                    local vs = cam.ViewportSize
+                                    local cx, cy = vs.X * 0.5, vs.Y * 0.5
+                                    local dx2 = vp.X - cx
+                                    local dy2 = vp.Y - cy
+                                    screenDist = math.sqrt(dx2*dx2 + dy2*dy2)
+                                end
+                                local occluded = false
+                                pcall(function()
+                                    local rp = RaycastParams.new()
+                                    rp.FilterType = Enum.RaycastFilterType.Blacklist
+                                    rp.FilterDescendantsInstances = { head.Parent }
+                                    local origin = cam.CFrame.Position
+                                    local direction = head.Position - origin
+                                    local ray = workspace:Raycast(origin, direction, rp)
+                                    if ray and ray.Instance and not ray.Instance:IsDescendantOf(head.Parent) then occluded = true end
+                                end)
+                                local isTeam = false
+                                pcall(function()
+                                    if type(_G) == "table" and _G.RivalsCHT_TeamCheck and type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                                        local pl = Players:GetPlayerFromCharacter(head.Parent)
+                                        isTeam = pl and _G.RivalsCHT_TeamCheck.IsTeammate(pl) or false
+                                    end
+                                end)
+                                local name = (head.Parent and head.Parent.Name) or "model"
+                                info = info .. string.format("Target=%s | screen=%.1f | world=%.1f | tz=%.1f | fov=%.1f | useTZ=%s | occluded=%s | team=%s", name, screenDist or 0, (worldDist or 0), (targetZone or 0), (fovMax or 0), (useTargetZone and "Y" or "N"), (occluded and "Y" or "N"), (isTeam and "Y" or "N"))
+                            else
+                                info = info .. string.format("no target | tz=%.1f | fov=%.1f | useTZ=%s", (targetZone or 0), (fovMax or 0), (useTargetZone and "Y" or "N"))
+                            end
+                            return info
+                        end)
+                        if okInfo and info and aimbotInfoLabel then pcall(function() aimbotInfoLabel.Set(info) end) end
+                    end
+                end
             end
             if drawCircle and drawEnabled then
                 pcall(function()
@@ -5006,9 +5025,7 @@ do
         local api = ToggleAPI[aimbotToggle]
         return api and api.Get and api.Get()
     end
-    -- Allow other parts of the script to trigger/release aim-lock programmatically
     _G.RivalsCHT_Aimbot.Trigger = function()
-        -- validate persistent target is alive before triggering
         if persistentTarget and persistentTarget.model then
             if not _G.RivalsCHT_Aimbot.IsAlive(persistentTarget.model) then
                 pcall(function() _G.RivalsCHT_Aimbot.ClearPersistentTarget() end)
@@ -5103,6 +5120,7 @@ do
         return inFov, dist, Vector2.new(p.X, p.Y), headInst
     end
 end
+
 
 -- ** Aimbot Logic Ends Here ** --
 
@@ -6451,6 +6469,7 @@ end
 
 -- ** Auto Shoot Logic Ends Here ** --
 
+---------------------------------------------------------------------------
 
 -- ** No-Clip Logic Starts Here ** --
 
@@ -6462,6 +6481,7 @@ do
     local toggleApi = ToggleAPI[noclipToggle]
     local originalCollisionStates = {}
     local charAddedConn = nil
+    local noclipLoopConn = nil
     
     local function getBodyParts()
         if not player or not player.Character then return {} end
@@ -6477,17 +6497,40 @@ do
 
     local function setNoclip(enabled)
         noclipEnabled = enabled
-        local parts = getBodyParts()
         
         if enabled then
             originalCollisionStates = {}
+            local parts = getBodyParts()
             for _, part in ipairs(parts) do
                 if part then
                     originalCollisionStates[part] = part.CanCollide
                     part.CanCollide = false
                 end
             end
+            
+            if not noclipLoopConn then
+                noclipLoopConn = RunService.Heartbeat:Connect(function()
+                    if not noclipEnabled or not player or not player.Character then return end
+                    
+                    local parts = getBodyParts()
+                    for _, part in ipairs(parts) do
+                        if part then
+                            if not originalCollisionStates[part] then
+                                originalCollisionStates[part] = part.CanCollide
+                            end
+                            if part.CanCollide then
+                                part.CanCollide = false
+                            end
+                        end
+                    end
+                end)
+            end
         else
+            if noclipLoopConn then
+                noclipLoopConn:Disconnect()
+                noclipLoopConn = nil
+            end
+            
             for part, originalState in pairs(originalCollisionStates) do
                 if part and part.Parent then
                     part.CanCollide = originalState
@@ -6533,11 +6576,14 @@ do
     setupKeybindListener()
 
     local function onCharacterAdded(char)
-        if not noclipEnabled then return end
-        for _, part in ipairs(char:GetDescendants()) do
-            if part and part:IsA("BasePart") then
-                originalCollisionStates[part] = part.CanCollide
-                part.CanCollide = false
+        originalCollisionStates = {}
+        
+        if noclipEnabled then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part and part:IsA("BasePart") then
+                    originalCollisionStates[part] = part.CanCollide
+                    part.CanCollide = false
+                end
             end
         end
     end
@@ -6561,6 +6607,7 @@ do
         setNoclip(false)
         if keybindConn then keybindConn:Disconnect() end
         if charAddedConn then charAddedConn:Disconnect() end
+        if noclipLoopConn then noclipLoopConn:Disconnect() end
     end)
 end
 
@@ -6597,6 +6644,22 @@ do
         return true
     end
 
+    local function isEnemyByTeamCheck(pl)
+        if not pl or pl == LocalPlayer then return false end
+        
+        local isEnemy = true
+        if _G and _G.RivalsCHT_TeamCheck then
+            if type(_G.RivalsCHT_TeamCheck.IsEnemy) == "function" then
+                local ok, res = pcall(_G.RivalsCHT_TeamCheck.IsEnemy, pl)
+                isEnemy = ok and not not res
+            elseif type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                local ok, isTeam = pcall(_G.RivalsCHT_TeamCheck.IsTeammate, pl)
+                isEnemy = not (ok and isTeam)
+            end
+        end
+        return isEnemy
+    end
+
     local function findStickTarget()
         local cam = workspace.CurrentCamera
         if not cam then return nil end
@@ -6605,28 +6668,15 @@ do
         local best, bestDist = nil, math.huge
 
         for _, pl in ipairs(Players:GetPlayers()) do
-            if isValidTarget(pl) then
-                local isEnemy = true
-                if _G and _G.RivalsCHT_TeamCheck then
-                    if type(_G.RivalsCHT_TeamCheck.IsEnemy) == "function" then
-                        local ok, res = pcall(_G.RivalsCHT_TeamCheck.IsEnemy, pl)
-                        isEnemy = ok and not not res
-                    elseif type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
-                        local ok, isTeam = pcall(_G.RivalsCHT_TeamCheck.IsTeammate, pl)
-                        isEnemy = not (ok and isTeam)
-                    end
-                end
-
-                if isEnemy then
-                    local pp = pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")
-                    local toTarget = pp.Position - origin
-                    local dot = look:Dot(toTarget.Unit)
-                    if dot > 0.65 then
-                        local dist = toTarget.Magnitude
-                        if dist < MAX_DISTANCE and dist < bestDist then
-                            best = pl
-                            bestDist = dist
-                        end
+            if isValidTarget(pl) and isEnemyByTeamCheck(pl) then
+                local pp = pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")
+                local toTarget = pp.Position - origin
+                local dot = look:Dot(toTarget.Unit)
+                if dot > 0.65 then
+                    local dist = toTarget.Magnitude
+                    if dist < MAX_DISTANCE and dist < bestDist then
+                        best = pl
+                        bestDist = dist
                     end
                 end
             end
@@ -6650,17 +6700,7 @@ do
             if p ~= LocalPlayer then
                 local function onChar(char)
                     if not p or p == LocalPlayer then return end
-                    local isEnemy = true
-                        if _G and _G.RivalsCHT_TeamCheck then
-                        if type(_G.RivalsCHT_TeamCheck.IsEnemy) == "function" then
-                            local ok, res = pcall(_G.RivalsCHT_TeamCheck.IsEnemy, p)
-                            isEnemy = ok and not not res
-                        elseif type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
-                            local ok, isTeam = pcall(_G.RivalsCHT_TeamCheck.IsTeammate, p)
-                            isEnemy = not (ok and isTeam)
-                        end
-                    end
-                    if isEnemy and isValidTarget(p) then
+                    if isEnemyByTeamCheck(p) and isValidTarget(p) then
                         stickTarget = p
                         stopRespawnWatcher()
                     end
@@ -6671,18 +6711,8 @@ do
         end
         table.insert(respawnConns, Players.PlayerAdded:Connect(function(p)
             if p == LocalPlayer then return end
-                local function onChar(char)
-                local isEnemy = true
-                if _G and _G.RivalsCHT_TeamCheck then
-                    if type(_G.RivalsCHT_TeamCheck.IsEnemy) == "function" then
-                        local ok, res = pcall(_G.RivalsCHT_TeamCheck.IsEnemy, p)
-                        isEnemy = ok and not not res
-                    elseif type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
-                        local ok, isTeam = pcall(_G.RivalsCHT_TeamCheck.IsTeammate, p)
-                        isEnemy = not (ok and isTeam)
-                    end
-                end
-                if isEnemy and isValidTarget(p) then
+            local function onChar(char)
+                if isEnemyByTeamCheck(p) and isValidTarget(p) then
                     stickTarget = p
                     stopRespawnWatcher()
                 end
@@ -6692,6 +6722,22 @@ do
         end))
     end
 
+    local function isTargetHoldingKnife()
+        if not stickTarget then return false end
+        
+        if type(_G) == "table" and _G.RivalsCHTUI and _G.RivalsCHTUI.ShowEnemyWeapons and type(_G.RivalsCHTUI.ShowEnemyWeapons.GetEnemyHeldWeapon) == "function" then
+            local ok, norm, raw = pcall(function() return _G.RivalsCHTUI.ShowEnemyWeapons.GetEnemyHeldWeapon(stickTarget) end)
+            if ok and (type(norm) == "string" or type(raw) == "string") then
+                local sraw = (type(raw) == "string") and string.lower(raw) or ""
+                local snorm = (type(norm) == "string") and string.lower(norm) or ""
+                if string.find(sraw, "knife") or string.find(snorm, "knife") then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
     local function startStick()
         if stickConn then return end
         local lastSelect = 0
@@ -6699,6 +6745,11 @@ do
         local SELECT_INTERVAL = 0.25 -- seconds
         local MOVE_INTERVAL = 0 -- seconds 
         local prevHeartbeat = tick()
+        local spinRotation = 0
+        local isInKnifeDodgeMode = false
+        local SPIN_SPEED = 12 -- radians per heartbeat
+        local DODGE_DISTANCE = 15 -- studs away from target
+        
         stickConn = RunService.Heartbeat:Connect(function()
             if not stickEnabled then return end
             if not LocalPlayer or not LocalPlayer.Character then return end
@@ -6708,30 +6759,53 @@ do
             local now = tick()
             local dt = now - prevHeartbeat
             prevHeartbeat = now
-            if stickTarget and not isValidTarget(stickTarget) then
-                local newT = findStickTarget()
-                if newT then
-                    stickTarget = newT
-                    lastSelect = now
-                    stopRespawnWatcher()
-                else
-                    stickTarget = nil
-                    startRespawnWatcher()
-                end
-            end
-
-            if (not stickTarget or not isValidTarget(stickTarget)) and now - lastSelect >= SELECT_INTERVAL then
+            
+            if not stickTarget and now - lastSelect >= SELECT_INTERVAL then
                 stickTarget = findStickTarget()
                 lastSelect = now
             end
+            
+            if stickTarget and (not isValidTarget(stickTarget) or not isEnemyByTeamCheck(stickTarget)) then
+                stickTarget = nil
+                isInKnifeDodgeMode = false
+                spinRotation = 0
+                return 
+            end
 
-            if stickTarget and isValidTarget(stickTarget) and now - lastMove >= MOVE_INTERVAL then
+            if not stickTarget then
+                return 
+            end
+
+            if now - lastMove >= MOVE_INTERVAL then
                 lastMove = now
                 local tp = stickTarget.Character.PrimaryPart or stickTarget.Character:FindFirstChild("HumanoidRootPart")
                 if tp and tp.Position then
-                    local targetPos = tp.Position + Vector3.new(0, 6.4, 0) -- studs above target
-                    local backPos = targetPos - (tp.CFrame.LookVector.Unit * BEHIND_DISTANCE)
-                    local dest = CFrame.new(backPos, targetPos)
+                    local isHoldingKnife = isTargetHoldingKnife()
+
+                    local backPos
+                    if isHoldingKnife then
+                        isInKnifeDodgeMode = true
+                        spinRotation = spinRotation + SPIN_SPEED
+                        
+                        local pushDir = (lpRoot.Position - tp.Position).Unit
+                        if pushDir.Magnitude == 0 then
+                            pushDir = Vector3.new(1, 0, 0)
+                        end
+                        
+                        backPos = tp.Position + (pushDir * DODGE_DISTANCE) + Vector3.new(0, 6.4, 0)
+                    else
+                        isInKnifeDodgeMode = false
+                        spinRotation = 0
+                        local targetPos = tp.Position + Vector3.new(0, 6.4, 0) 
+                        backPos = targetPos - (tp.CFrame.LookVector.Unit * BEHIND_DISTANCE)
+                    end
+                    
+                    local dest = CFrame.new(backPos, tp.Position)
+                    
+                    if isInKnifeDodgeMode then
+                        dest = dest * CFrame.Angles(0, spinRotation, 0)
+                    end
+                    
                     if LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
                         local useSmoothing = false
                         local sToggleApi = ToggleAPI and ToggleAPI[useStickSmoothingToggle]
@@ -6930,6 +7004,494 @@ end
 
 ---------------------------------------------------------------------------
 
+-- ** Fly Logic Starts Here ** --
+do
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local UserInputService = game:GetService("UserInputService")
+
+    local player = Players.LocalPlayer
+    local flyEnabled = false
+    local flyConn = nil
+    local inputBeganConn = nil
+    local inputEndedConn = nil
+    local charAddedConn = nil
+    local prevPlatformStand = nil
+    local moveState = { W=false, A=false, S=false, D=false, Up=false, Down=false }
+    local flyHeight = nil
+    local flySpeed = GetConfig and GetConfig("rage.flySpeed", 20) or 20
+    local flyDebugLabel = nil
+
+    local function getSpeedFromSlider()
+        if SliderAPI and SliderAPI[flySpeedSlider] and SliderAPI[flySpeedSlider].Get then
+            local v = SliderAPI[flySpeedSlider].Get()
+            if type(v) == "number" then
+                flySpeed = v
+                return
+            end
+        end
+        flySpeed = GetConfig and GetConfig("rage.flySpeed", flySpeed) or flySpeed
+    end
+
+    local function setMovementFlag(key, down)
+        if moveState[key] ~= nil then moveState[key] = not not down end
+    end
+
+    local function onInputBegan(input, gameProcessed)
+        if gameProcessed then return end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        local k = input.KeyCode
+        if k == Enum.KeyCode.W then setMovementFlag("W", true) end
+        if k == Enum.KeyCode.S then setMovementFlag("S", true) end
+        if k == Enum.KeyCode.A then setMovementFlag("A", true) end
+        if k == Enum.KeyCode.D then setMovementFlag("D", true) end
+        if k == Enum.KeyCode.Space then setMovementFlag("Up", true) end
+        if k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift then setMovementFlag("Down", true) end
+    end
+
+    local function onInputEnded(input)
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        local k = input.KeyCode
+        if k == Enum.KeyCode.W then setMovementFlag("W", false) end
+        if k == Enum.KeyCode.S then setMovementFlag("S", false) end
+        if k == Enum.KeyCode.A then setMovementFlag("A", false) end
+        if k == Enum.KeyCode.D then setMovementFlag("D", false) end
+        if k == Enum.KeyCode.Space then setMovementFlag("Up", false) end
+        if k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift then setMovementFlag("Down", false) end
+    end
+
+    local function applyFly(dt)
+        if not player or not player.Character then return end
+        local root = player.Character.PrimaryPart or player.Character:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        local cam = workspace.CurrentCamera
+        if not cam then return end
+
+        local forward = cam.CFrame.LookVector
+        local right = cam.CFrame.RightVector
+
+        local hor = Vector3.new(0,0,0)
+        if moveState.W then hor = hor + Vector3.new(forward.X, 0, forward.Z) end
+        if moveState.S then hor = hor - Vector3.new(forward.X, 0, forward.Z) end
+        if moveState.D then hor = hor + Vector3.new(right.X, 0, right.Z) end
+        if moveState.A then hor = hor - Vector3.new(right.X, 0, right.Z) end
+
+        if flyHeight == nil then flyHeight = root.Position.Y end
+        if moveState.Up then flyHeight = flyHeight + (flySpeed or 20) * dt end
+        if moveState.Down then flyHeight = flyHeight - (flySpeed or 20) * dt end
+
+        pcall(function()
+            local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = true end
+            if root and root:IsA("BasePart") then
+                root.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                root.Velocity = Vector3.new(0,0,0)
+            end
+        end)
+
+        local horizontalMovement = Vector3.new(0,0,0)
+        if hor.Magnitude > 0 then
+            horizontalMovement = hor.Unit * (flySpeed or 20) * dt
+        end
+
+        local newPos = root.Position + horizontalMovement
+        newPos = Vector3.new(newPos.X, flyHeight, newPos.Z)
+        pcall(function()
+            player.Character:SetPrimaryPartCFrame(CFrame.new(newPos, newPos + Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)))
+        end)
+    end
+
+    local function onCharacterAdded(char)
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then prevPlatformStand = hum.PlatformStand end
+        if flyEnabled and hum then hum.PlatformStand = true end
+    end
+
+    local function startFly()
+        if flyConn then return end
+        getSpeedFromSlider()
+        flyConn = RunService.Heartbeat:Connect(function(dt)
+            applyFly(dt)
+        end)
+        if player and player.Character then
+            local hum = player.Character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                prevPlatformStand = hum.PlatformStand
+                hum.PlatformStand = true
+            end
+            local root = player.Character.PrimaryPart or player.Character:FindFirstChild("HumanoidRootPart")
+            if root and root:IsA("BasePart") then
+                flyHeight = root.Position.Y
+            end
+        end
+        if player then
+            charAddedConn = player.CharacterAdded:Connect(onCharacterAdded)
+        end
+    end
+
+    local function stopFly()
+        if flyConn then flyConn:Disconnect(); flyConn = nil end
+        if charAddedConn then charAddedConn:Disconnect(); charAddedConn = nil end
+        if player and player.Character then
+            local hum = player.Character:FindFirstChildOfClass("Humanoid")
+            if hum and prevPlatformStand ~= nil then hum.PlatformStand = prevPlatformStand end
+        end
+        pcall(function() if flyDebugLabel and flyDebugLabel.Set then flyDebugLabel.Set("Fly: OFF (stop)") end end)
+    end
+
+    do
+        local api = ToggleAPI and ToggleAPI[flyToggle]
+        if api then
+            local prev = api.OnToggle
+            api.OnToggle = function(state)
+                if prev then prev(state) end
+                flyEnabled = not not state
+                if flyEnabled then startFly() else stopFly() end
+                pcall(function() if flyDebugLabel and flyDebugLabel.Set then flyDebugLabel.Set("Fly: " .. (flyEnabled and "ON (ui)" or "OFF (ui)")) end end)
+                pcall(function() makeNotification("Fly is " .. (flyEnabled and "ON" or "OFF"), 2) end)
+            end
+            if api.Set then
+                local prevOn = api.OnToggle
+                api.OnToggle = nil
+                pcall(api.Set, GetConfig("rage.fly", false))
+                api.OnToggle = prevOn
+            end
+        end
+    end
+
+    do
+        local sApi = SliderAPI and SliderAPI[flySpeedSlider]
+        if sApi and sApi.Get and sApi.OnChange then
+            pcall(function() sApi.Set(GetConfig("rage.flySpeed", flySpeed)) end)
+            sApi.OnChange = function(v)
+                flySpeed = tonumber(v) or flySpeed
+                pcall(function() SetConfig("rage.flySpeed", flySpeed) end)
+            end
+        else
+            flySpeed = GetConfig and GetConfig("rage.flySpeed", flySpeed) or flySpeed
+        end
+    end
+
+    pcall(function() flyDebugLabel = makeDebugLabel("Fly: OFF") end)
+
+    local flyKeyConn = nil
+    flyKeyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        local bound = GetConfig and GetConfig("rage.flyKeybind", "N")
+        local target = nil
+        if type(bound) == "string" and Enum.KeyCode[bound] then
+            target = Enum.KeyCode[bound]
+        elseif typeof and typeof(bound) == "EnumItem" then
+            target = bound
+        end
+        if target and input.KeyCode == target then
+            local currentState = GetConfig and GetConfig("rage.fly", false)
+            local newState = not currentState
+            if SetConfig then SetConfig("rage.fly", newState) end
+            local api = ToggleAPI and ToggleAPI[flyToggle]
+            if api and api.Set then api.Set(newState) end
+            if flyDebugLabel and flyDebugLabel.Set then flyDebugLabel.Set("Fly: " .. (newState and "ON (keybind)" or "OFF (keybind)")) end
+        end
+    end)
+
+    if not inputBeganConn then
+        inputBeganConn = UserInputService.InputBegan:Connect(onInputBegan)
+    end
+    if not inputEndedConn then
+        inputEndedConn = UserInputService.InputEnded:Connect(onInputEnded)
+    end
+
+    if GetConfig and GetConfig("rage.fly", false) then
+        flyEnabled = true
+        startFly()
+    end
+
+    RegisterUnload(function()
+        stopFly()
+        if inputBeganConn then inputBeganConn:Disconnect(); inputBeganConn = nil end
+        if inputEndedConn then inputEndedConn:Disconnect(); inputEndedConn = nil end
+        if flyKeyConn then flyKeyConn:Disconnect(); flyKeyConn = nil end
+        if flyDebugLabel then pcall(function()
+            if flyDebugLabel.Destroy then flyDebugLabel.Destroy() elseif flyDebugLabel.Set then flyDebugLabel.Set("") end
+        end) end
+    end)
+end
+
+-- ** Fly Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Update Log Logic Starts Here ** --
+
+do
+    local url = "https://your-desire.vercel.app/api/changeLogs.js"
+    local function get_request()
+        if type(http_request) == "function" then return http_request end
+        if type(request) == "function" then return request end
+        if type(syn) == "table" and type(syn.request) == "function" then return syn.request end
+        if type(fluxus) == "table" and type(fluxus.request) == "function" then return fluxus.request end
+        if type(http) == "table" and type(http.request) == "function" then return http.request end
+        return nil
+    end
+
+    local reqfn = get_request()
+    local body = nil
+    if reqfn then
+        local ok, res = pcall(function()
+            return reqfn({ Url = url, Method = "GET" })
+        end)
+        if ok and res then
+            if type(res) == "table" then
+                body = res.Body or res.body or res.response or nil
+            elseif type(res) == "string" then
+                body = res
+            end
+        end
+    end
+
+    local function parse_js_object(js)
+        if not js or type(js) ~= "string" then return nil end
+        local s = js
+        s = s:gsub("^%s*const%s+%w+%s*=", "")
+        s = s:gsub(";%s*$", "")
+        s = s:gsub("%[", "{")
+        s = s:gsub("%]", "}")
+        s = s:gsub('(%b"")%s*:', function(k) return "[" .. k .. "] =" end)
+        s = s:gsub("%: null", "= nil")
+        local prev = nil
+        repeat
+            prev = s
+            s = s:gsub(",%s*([}%]])", "%1")
+        until s == prev
+        local chunk = "return " .. s
+        local fn, err = loadstring(chunk)
+        if not fn then return nil, err end
+        local ok, tbl = pcall(fn)
+        if not ok then return nil, tbl end
+        return tbl
+    end
+
+    local updateLog = nil
+    if body then
+        local parsed, perr = parse_js_object(body)
+        if parsed then updateLog = parsed end
+    end
+
+    if not updateLog then
+        updateLog = {
+            title = "Update",
+            info = { "Could not fetch update log." },
+            metadata = { id = "update_unknown", version = "0" }
+        }
+    end
+
+    local seenKey = "updates.seen." .. (updateLog.metadata and updateLog.metadata.id or "unknown")
+    local alreadySeen = false
+    if GetConfig then
+        local ok, val = pcall(function() return GetConfig(seenKey, false) end)
+        if ok and val then alreadySeen = true end
+    end
+
+    if not alreadySeen then
+        local playerGui = Players.LocalPlayer and Players.LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        if not playerGui and Players.LocalPlayer then
+            playerGui = Players.LocalPlayer:FindFirstChild("PlayerGui")
+        end
+        if not playerGui then
+            pcall(function() playerGui = Players.LocalPlayer:WaitForChild("PlayerGui") end)
+        end
+
+        local screenGui = Instance.new("ScreenGui")
+        screenGui.Name = "UpdateLogScreenGui"
+        screenGui.ResetOnSpawn = false
+        screenGui.DisplayOrder = 9999
+        screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        screenGui.Parent = playerGui
+
+        local overlay = Instance.new("Frame")
+        overlay.Name = "UpdateLogOverlay"
+        overlay.Size = UDim2.new(1,0,1,0)
+        overlay.Position = UDim2.new(0,0,0,0)
+        overlay.BackgroundColor3 = Color3.fromRGB(0,0,0)
+        overlay.BackgroundTransparency = 0.45
+        overlay.ZIndex = 1
+        overlay.Active = true
+        overlay.Parent = screenGui
+
+        local shadow = Instance.new("Frame")
+        shadow.Name = "UpdateShadow"
+        shadow.Size = UDim2.new(0, 780, 0, 440)
+        shadow.Position = UDim2.new(0.5, -390, 0.5, -220)
+        shadow.AnchorPoint = Vector2.new(0,0)
+        shadow.BackgroundColor3 = Color3.fromRGB(0,0,0)
+        shadow.BackgroundTransparency = 0.7
+        shadow.ZIndex = 1
+        shadow.Parent = overlay
+
+        local dialog = Instance.new("Frame")
+        dialog.Name = "UpdateDialog"
+        dialog.Size = UDim2.new(0, 760, 0, 420)
+        dialog.Position = UDim2.new(0.5, -380, 0.5, -210)
+        dialog.AnchorPoint = Vector2.new(0,0)
+        dialog.BackgroundColor3 = COLORS and COLORS.panel or Color3.fromRGB(18,18,18)
+        dialog.BackgroundTransparency = 0
+        dialog.BorderSizePixel = 0
+        dialog.ZIndex = 2
+        dialog.Parent = overlay
+
+        local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0,14) corner.Parent = dialog
+        local stroke = Instance.new("UIStroke") stroke.Color = COLORS and COLORS.divider or Color3.fromRGB(60,60,60) stroke.Thickness = 1 stroke.Parent = dialog
+        RegisterThemed(dialog)
+
+        local header = Instance.new("Frame")
+        header.Name = "Header"
+        header.Size = UDim2.new(1, 0, 0, 72)
+        header.Position = UDim2.new(0, 0, 0, 0)
+        header.BackgroundColor3 = COLORS and COLORS.accent or Color3.fromRGB(200,80,180)
+        header.BorderSizePixel = 0
+        header.ZIndex = 3
+        header.Parent = dialog
+        local headerCorner = Instance.new("UICorner") headerCorner.CornerRadius = UDim.new(0,12) headerCorner.Parent = header
+        RegisterThemed(header)
+
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, -48, 0, 72)
+        title.Position = UDim2.new(0, 24, 0, 0)
+        title.BackgroundTransparency = 1
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 22
+        title.TextColor3 = COLORS and COLORS.white or Color3.fromRGB(250,250,250)
+        title.Text = updateLog.title or "Update"
+        title.ZIndex = 4
+        title.Parent = header
+        RegisterThemed(title)
+
+        local closeFrame = Instance.new("Frame")
+        closeFrame.Name = "CloseButtonHolder"
+        closeFrame.Size = UDim2.new(0,36,0,36)
+        closeFrame.Position = UDim2.new(1, -44, 0, 12)
+        closeFrame.AnchorPoint = Vector2.new(0,0)
+        closeFrame.BackgroundTransparency = 1
+        closeFrame.ZIndex = 4
+        closeFrame.Parent = dialog
+        RegisterThemed(closeFrame)
+
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Name = "CloseBtn"
+        closeBtn.Size = UDim2.new(0,32,0,32)
+        closeBtn.Position = UDim2.new(1, -4, 0.5, 0)
+        closeBtn.AnchorPoint = Vector2.new(1,0.5)
+        closeBtn.Text = "X"
+        closeBtn.Font = Enum.Font.GothamBold
+        closeBtn.TextSize = 18
+        closeBtn.BackgroundColor3 = COLORS and COLORS.panelDark or Color3.fromRGB(40,40,40)
+        closeBtn.TextColor3 = COLORS and COLORS.text or Color3.fromRGB(220,220,220)
+        closeBtn.BorderSizePixel = 0
+        closeBtn.Parent = closeFrame
+        local closeCorner = Instance.new("UICorner") closeCorner.CornerRadius = UDim.new(0,6) closeCorner.Parent = closeBtn
+        RegisterThemed(closeBtn)
+        closeBtn.MouseButton1Click:Connect(function()
+            if SetConfig then pcall(function() SetConfig(seenKey, true) end) end
+            if screenGui and screenGui.Destroy then screenGui:Destroy() end
+        end)
+
+        local content = Instance.new("ScrollingFrame")
+        content.Name = "UpdateContent"
+        content.Size = UDim2.new(1, -48, 0, 220)
+        content.Position = UDim2.new(0,24,0,72)
+        content.BackgroundTransparency = 1
+        content.ScrollBarThickness = 8
+        content.CanvasSize = UDim2.new(0,0,0,0)
+        content.ZIndex = 2
+        content.Parent = dialog
+
+        local contentPadding = Instance.new("UIPadding")
+        contentPadding.PaddingLeft = UDim.new(0,6)
+        contentPadding.PaddingRight = UDim.new(0,6)
+        contentPadding.PaddingTop = UDim.new(0,6)
+        contentPadding.PaddingBottom = UDim.new(0,6)
+        contentPadding.Parent = content
+
+        local uiList = Instance.new("UIListLayout")
+        uiList.Name = "UpdateList"
+        uiList.Padding = UDim.new(0,8)
+        uiList.SortOrder = Enum.SortOrder.LayoutOrder
+        uiList.Parent = content
+        uiList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            content.CanvasSize = UDim2.new(0, 0, 0, uiList.AbsoluteContentSize.Y + 12)
+        end)
+
+        for i, line in ipairs(updateLog.info or {}) do
+            local holder = Instance.new("Frame")
+            holder.Size = UDim2.new(1, 0, 0, 0)
+            holder.AutomaticSize = Enum.AutomaticSize.Y
+            holder.BackgroundTransparency = 1
+            holder.Parent = content
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, -12, 0, 0)
+            lbl.AutomaticSize = Enum.AutomaticSize.Y
+            lbl.BackgroundTransparency = 1
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.TextWrapped = true
+            lbl.Font = Enum.Font.Gotham
+            lbl.TextSize = 16
+            lbl.TextColor3 = COLORS and COLORS.text or Color3.fromRGB(230,230,230)
+            lbl.Text = "• " .. tostring(line)
+            lbl.LayoutOrder = i
+            lbl.Parent = holder
+        end
+
+        local footer = Instance.new("TextLabel")
+        footer.Size = UDim2.new(1, -48, 0, 48)
+        footer.Position = UDim2.new(0,24,1,-88)
+        footer.BackgroundTransparency = 1
+        footer.Font = Enum.Font.Gotham
+        footer.TextSize = 14
+        footer.TextColor3 = Color3.fromRGB(180,180,180)
+        footer.TextWrapped = true
+        footer.Text = updateLog.footer or ""
+        footer.TextXAlignment = Enum.TextXAlignment.Left
+        footer.ZIndex = 3
+        footer.Parent = dialog
+
+        local okHolder = Instance.new("Frame")
+        okHolder.Name = "OkButtonHolder"
+        okHolder.Size = UDim2.new(0,140,0,40)
+        okHolder.Position = UDim2.new(0.5, 0, 1, -48)
+        okHolder.AnchorPoint = Vector2.new(0.5,0)
+        okHolder.BackgroundTransparency = 1
+        okHolder.Parent = dialog
+        RegisterThemed(okHolder)
+
+        local okBtn = Instance.new("TextButton")
+        okBtn.Name = "OkBtn"
+        okBtn.Size = UDim2.new(1, 0, 1, 0)
+        okBtn.Position = UDim2.new(0, 0, 0, 0)
+        okBtn.AnchorPoint = Vector2.new(0,0)
+        okBtn.Text = "Ok"
+        okBtn.Font = Enum.Font.GothamBold
+        okBtn.TextSize = 16
+        okBtn.TextColor3 = COLORS and COLORS.text or Color3.fromRGB(240,240,240)
+        okBtn.BackgroundColor3 = COLORS and COLORS.accent or Color3.fromRGB(48,120,220)
+        okBtn.BorderSizePixel = 0
+        okBtn.Parent = okHolder
+        local okCorner = Instance.new("UICorner") okCorner.CornerRadius = UDim.new(0,8) okCorner.Parent = okBtn
+        RegisterThemed(okBtn)
+        okBtn.MouseButton1Click:Connect(function()
+            if SetConfig then pcall(function() SetConfig(seenKey, true) end) end
+            if screenGui and screenGui.Destroy then screenGui:Destroy() end
+        end)
+    end
+end
+
+-- ** Update Log Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
 -- =================== Very end of Your Desire =================== --
 
 -- ** Like a wise man once said, "Show me the client's state, and I'll show you the perfect hook." - some guy lol ** --
+    
