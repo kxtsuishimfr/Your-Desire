@@ -7708,6 +7708,7 @@ end
 do
     local modelsColorState = {}
     local lastAppliedColor = nil
+    local colorHeartbeat = nil
 
     local function revertModelsColor()
         for part, originalColor in pairs(modelsColorState) do
@@ -7757,19 +7758,42 @@ do
 
                         do
                             local prev = toggleApi.OnToggle
+                            local descConn = nil
                             toggleApi.OnToggle = function(state)
                                 if prev then prev(state) end
                                 if SetConfig then SetConfig("customization.useModelsColor", state) end
                                 if state then
+                                    if not descConn then
+                                        descConn = workspace.DescendantAdded:Connect(function(desc)
+                                            if toggleApi.Get and toggleApi.Get() and desc:IsA("BasePart") and desc.Color and desc.Transparency < 0.99 and not modelsColorState[desc] then
+                                                local c = colorApi.Get and colorApi.Get()
+                                                if c then
+                                                    modelsColorState[desc] = desc.Color
+                                                    desc.Color = c
+                                                end
+                                            end
+                                        end)
+                                    end
                                     local c = colorApi.Get and colorApi.Get()
                                     if c then applyModelsColor(c) end
                                 else
+                                    if descConn then descConn:Disconnect(); descConn = nil end
                                     revertModelsColor()
                                 end
                             end
                         end
 
                         if toggleApi.Get and toggleApi.Get() then
+                            local descConn = workspace.DescendantAdded:Connect(function(desc)
+                                if toggleApi.Get and toggleApi.Get() and desc:IsA("BasePart") and desc.Color and desc.Transparency < 0.99 and not modelsColorState[desc] then
+                                    local c = colorApi.Get and colorApi.Get()
+                                    if c then
+                                        modelsColorState[desc] = desc.Color
+                                        desc.Color = c
+                                    end
+                                end
+                            end)
+                            colorHeartbeat = descConn
                             local c = colorApi.Get and colorApi.Get()
                             if c then applyModelsColor(c) end
                         end
@@ -7783,6 +7807,7 @@ do
     end)
 
     RegisterUnload(function()
+        if colorHeartbeat and colorHeartbeat.Disconnect then colorHeartbeat:Disconnect() end
         revertModelsColor()
     end)
 end
