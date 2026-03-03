@@ -3132,12 +3132,13 @@ local flyGroup = makeCollapsibleGroup(rageTab.LeftCol, "Fly Stuff", false, funct
      flySpeedSlider = makeSlider(parent, "Fly Speed", 0, 400, initialSpeed)
 end)
      
-
+--[[
 local goToVoidToggle, goToVoidKeybind
 local voidGroup = makeCollapsibleGroup(rageTab.RightCol, "Void Stuff", false, function(parent)
     goToVoidToggle = makeToggle(parent, "Go to Void", "Teleports you into the void")
     goToVoidKeybind = makeKeyBindButton(parent, "Go to Void Keybind", Enum.KeyCode.N)
 end)
+-- ]]
 
 
 -- ** Save Rage to Config **
@@ -7600,7 +7601,8 @@ end
 
 -- ** Go To Void Logic Starts Here ** --
 
-do
+--[[
+ do
     local prevCFrame = nil
     local api = nil
     local tetherConn = nil
@@ -7693,7 +7695,8 @@ do
             prevCFrame = nil
         end
     end)
-end
+end 
+-- ]]
 
 
 -- ** Go To Void Logic Ends Here ** --
