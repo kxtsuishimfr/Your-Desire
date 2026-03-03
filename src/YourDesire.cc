@@ -1269,6 +1269,14 @@ local function makeCollapsibleGroup(parent, title, defaultOpen, builderFn)
     grp.Position = UDim2.new(0, extraX, 0, 0)
     grp.Parent = parent
 
+    local maxOrder = 0
+    for _,c in ipairs(parent:GetChildren()) do
+        if c ~= grp and (c:IsA("Frame") or c:IsA("TextLabel") or c:IsA("TextButton")) then
+            maxOrder = math.max(maxOrder, c.LayoutOrder or 0)
+        end
+    end
+    grp.LayoutOrder = maxOrder + 1
+
     local header = Instance.new("TextButton")
     header.Size = UDim2.new(1, 0, 0, headerHeight)
     header.Position = UDim2.new(0,0,0,0)
@@ -2015,6 +2023,9 @@ local function makeColorPicker(parent, labelText, defaultColor)
 
     local initialHSV = colorToHSVtbl((type(defaultColor) == "Color3") and defaultColor or COLORS.accent)
 
+    -- track HSV components; value slider uses currentValue (0=black,1=full brightness)
+    local currentHue, currentSat, currentValue = initialHSV.h / 360, initialHSV.s / 100, initialHSV.v / 100
+
     local current = swatch.BackgroundColor3
 
     local wheelSize = 180
@@ -2064,14 +2075,61 @@ local function makeColorPicker(parent, labelText, defaultColor)
     local pStroke = Instance.new("UIStroke") pStroke.Thickness = 2 pStroke.Color = Color3.new(0,0,0) pStroke.Parent = pointer
     pointer.ZIndex = TOP_Z + 1
 
+    -- vertical brightness slider
+    local valueSliderFrame = Instance.new("Frame")
+    valueSliderFrame.Size = UDim2.new(0, 16, 0, wheelSize)
+    valueSliderFrame.Position = UDim2.new(0, wheelSize + 8, 0, 6)
+    valueSliderFrame.BackgroundColor3 = Color3.new(0.2,0.2,0.2)
+    valueSliderFrame.BorderSizePixel = 0
+    valueSliderFrame.Parent = scroll
+    valueSliderFrame.ZIndex = TOP_Z
+
+    local valueHandle = Instance.new("Frame")
+    valueHandle.Size = UDim2.new(1,0,0,8)
+    valueHandle.AnchorPoint = Vector2.new(0.5,0.5)
+    valueHandle.BackgroundColor3 = Color3.new(1,1,1)
+    valueHandle.BorderSizePixel = 0
+    valueHandle.Parent = valueSliderFrame
+    local vhCorner = Instance.new("UICorner"); vhCorner.CornerRadius = UDim.new(0,4); vhCorner.Parent = valueHandle
+    -- initial position based on value component
+    do
+        local initY = (1 - currentValue) * wheelSize
+        valueHandle.Position = UDim2.new(0.5,0,0,initY)
+    end
+
+    local sliderDragging = false
+
     local function setColor(c)
         if not c then return end
         current = c
         swatch.BackgroundColor3 = c
         if ColorPickerAPI[frame] and type(ColorPickerAPI[frame].OnChange) == "function" then
-            pcall(ColorPickerAPI[frame].OnChange, c)
+            ColorPickerAPI[frame].OnChange(c)
         end
     end
+
+    local function updateValueFromY(y)
+        local localY = math.clamp(y - valueSliderFrame.AbsolutePosition.Y, 0, wheelSize)
+        currentValue = 1 - (localY / wheelSize)
+        valueHandle.Position = UDim2.new(0.5,0,0,localY)
+        local col = Color3.fromHSV(currentHue or 0, currentSat or 0, currentValue)
+        setColor(col)
+    end
+
+    valueSliderFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliderDragging = true
+            updateValueFromY(input.Position.Y)
+        end
+    end)
+    valueSliderFrame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then sliderDragging = false end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if sliderDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            updateValueFromY(input.Position.Y)
+        end
+    end)
 
     local function posToColor(px, py)
         local cx = px - half
@@ -2091,6 +2149,8 @@ local function makeColorPicker(parent, labelText, defaultColor)
         local lx = math.clamp(localPos.X, 0, wheelSize)
         local ly = math.clamp(localPos.Y, 0, wheelSize)
         local col, hue, sat = posToColor(lx, ly)
+        currentHue, currentSat = hue, sat
+        col = Color3.fromHSV(hue, sat, currentValue)
         setColor(col)
         pointer.Position = UDim2.new(0, lx, 0, ly)
     end
@@ -2130,14 +2190,15 @@ local function makeColorPicker(parent, labelText, defaultColor)
         Get = function() return current end,
         Set = function(c)
             setColor(c)
-            pcall(function()
-                local ok, h, s, v = pcall(function() return Color3.toHSV(c) end)
-                if ok and h then
-                    local px = (math.cos(h * 2 * math.pi - math.pi) * (s * radius)) + half
-                    local py = (math.sin(h * 2 * math.pi - math.pi) * (s * radius)) + half
-                    pointer.Position = UDim2.new(0, px, 0, py)
-                end
-            end)
+            local h,s,v = Color3.toHSV(c)
+            currentHue, currentSat, currentValue = h, s, v
+            local px = (math.cos(h * 2 * math.pi - math.pi) * (s * radius)) + half
+            local py = (math.sin(h * 2 * math.pi - math.pi) * (s * radius)) + half
+            pointer.Position = UDim2.new(0, px, 0, py)
+            if valueSliderFrame and valueHandle then
+                local sliderY = (1 - v) * wheelSize
+                valueHandle.Position = UDim2.new(0.5,0,0,sliderY)
+            end
         end,
         OnChange = nil,
     }
@@ -2383,8 +2444,34 @@ local function BindDropDownToConfig(dropdownFrame, key, defaultIndex)
         end
     end
 end
-
 --------------------------------------------------------------------------
+local function BindColorPickerToConfig(pickerFrame, key, defaultColor)
+    if not pickerFrame then return end
+    local api = ColorPickerAPI[pickerFrame]
+    if not api then return end
+
+    local saved = GetConfig and GetConfig(key, nil)
+    local initColor = nil
+    if typeof(saved) == "Color3" then
+        initColor = saved
+    elseif type(saved) == "table" and saved.r and saved.g and saved.b then
+        initColor = Color3.new(saved.r, saved.g, saved.b)
+    elseif defaultColor and typeof(defaultColor) == "Color3" then
+        initColor = defaultColor
+    end
+    if initColor and api.Set then api.Set(initColor) end
+
+    do
+        local prev = api.OnChange
+        api.OnChange = function(col)
+            if col and typeof(col) == "Color3" and SetConfig then
+                SetConfig(key, { r = col.R, g = col.G, b = col.B })
+            end
+            if prev then prev(col) end
+        end
+    end
+end
+
 
 -- ** Unsupported game check starts here ** --
 local function showUnsupportedPopup()
@@ -2934,6 +3021,7 @@ local espBoxesToggle = makeToggle(visualTab.LeftCol, "ESP Boxes")
 local espBoxesColorPicker = makeColorPicker(visualTab.LeftCol, "ESP Boxes Color", initColor)
 local showEnemyWeaponsToggle = makeToggle(visualTab.RightCol, "Show Enemy Weapons", "Shows the weapons of enemies on your screen even.")
 
+
 ------------- Continue -------------
 
 -- ** Save Visuals to Config **
@@ -2942,6 +3030,8 @@ BindToggleToConfig(glowChamsToggle, "visuals.glowChams", false)
 BindToggleToConfig(playerHealthToggle, "visuals.playerHealth", false)
 BindToggleToConfig(espBoxesToggle, "visuals.espBoxes", false)
 BindToggleToConfig(showEnemyWeaponsToggle, "visuals.showEnemyWeapons", false)
+BindColorPickerToConfig(playerChamsColorPicker, "visuals.playerChamsColor", initColor)
+BindColorPickerToConfig(espBoxesColorPicker, "visuals.espBoxesColor", initColor)
 
 
 ---------------------------------------------------------------------------
@@ -3020,8 +3110,11 @@ BindToggleToConfig(aimnbotTargetZoneToggle, "combat.aimbotTargetZoneEnabled", fa
 -------------------------------------------------------------------------
 
 -- Rage Tab Stuff
-local noclipToggle = makeToggle(rageTab.LeftCol, "Noclip", "Allows you to walk through walls and objects.")
-local noclipKeybind = makeKeyBindButton(rageTab.LeftCol, "Noclip Keybind", Enum.KeyCode.N)
+local noclipToggle, noclipKeybind
+local noclipGroup = makeCollapsibleGroup(rageTab.LeftCol, "Noclip Stuff", false, function(parent)
+    noclipToggle = makeToggle(parent, "Noclip", "Allows you to walk through walls and objects.")
+    noclipKeybind = makeKeyBindButton(parent, "Noclip Keybind", Enum.KeyCode.N)
+end)
 
 local stickToToggle, stickToKeybind, useStickSmoothingToggle, smoothStickingSlider
 local stickGroup = makeCollapsibleGroup(rageTab.LeftCol, "Stick to Players", false, function(parent)
@@ -3030,10 +3123,21 @@ local stickGroup = makeCollapsibleGroup(rageTab.LeftCol, "Stick to Players", fal
     useStickSmoothingToggle = makeToggle(parent, "Use Smooth Sticking", "Smoothly moves you towards the target instead of teleporting.")
     smoothStickingSlider = makeSlider(parent, "Smooth Sticking", 0, 100, initialIntensity)
 end)
-local flyToggle = makeToggle(rageTab.LeftCol, "Fly", "Let's u fly around. SHIFT TO FLY DOWN AND SPACE TO FLY UP")
-local flyKeybind = makeKeyBindButton(rageTab.LeftCol, "Fly Keybind", Enum.KeyCode.N)
-local flySpeedSlider = makeSlider(rageTab.RightCol, "Fly Speed", 0, 400, initialSpeed)
 
+-- Fly Group
+local flyToggle, flyKeybind, flySpeedSlider
+local flyGroup = makeCollapsibleGroup(rageTab.LeftCol, "Fly Stuff", false, function(parent)
+     flyToggle = makeToggle(parent, "Fly", "Let's u fly around. SHIFT TO FLY DOWN AND SPACE TO FLY UP")
+     flyKeybind = makeKeyBindButton(parent, "Fly Keybind", Enum.KeyCode.N)
+     flySpeedSlider = makeSlider(parent, "Fly Speed", 0, 400, initialSpeed)
+end)
+     
+
+local goToVoidToggle, goToVoidKeybind
+local voidGroup = makeCollapsibleGroup(rageTab.RightCol, "Void Stuff", false, function(parent)
+    goToVoidToggle = makeToggle(parent, "Go to Void", "Teleports you into the void")
+    goToVoidKeybind = makeKeyBindButton(parent, "Go to Void Keybind", Enum.KeyCode.N)
+end)
 
 
 -- ** Save Rage to Config **
@@ -3046,6 +3150,9 @@ BindSliderToConfig(smoothStickingSlider, "rage.smoothStickingIntensity", 20)
 BindToggleToConfig(flyToggle, "rage.fly", false)
 BindKeybindToConfig(flyKeybind, "rage.flyKeybind", Enum.KeyCode.N)
 BindSliderToConfig(flySpeedSlider, "rage.flySpeed", 20)
+BindToggleToConfig(goToVoidToggle, "rage.goToVoid", false) 
+BindKeybindToConfig(goToVoidKeybind, "rage.goToVoidKeybind", Enum.KeyCode.N) 
+
 ---------------------------------------------------------------------------
 
 -- ** Customization Tab Stuff
@@ -3075,11 +3182,14 @@ do
 end
 
 local deviceSpoodDropDownList = makeDropDownList(customizationTab.LeftCol, "Device Spoof", {"PC","Phone","Controller","VR"}, 1)
+local modelsColorPicker = makeColorPicker(customizationTab.RightCol, "Models Color", initColor)
+local useModelsColorToggle = makeToggle(customizationTab.RightCol, "Use Models Color", "Applies the color from the color picker to the models in the game.")
 
 
 -- ** Save Customization to Config **
-BindToggleToConfig(useGradientsToggle, "customization.useGradients", true)
 BindDropDownToConfig(deviceSpoodDropDownList, "customization.deviceSpoof", 1)
+BindToggleToConfig(useModelsColorToggle, "customization.useModelsColor", false)
+BindColorPickerToConfig(modelsColorPicker, "customization.modelsColor", initColor)
 
 ---------------------------------------------------------------------------
 
@@ -3493,13 +3603,12 @@ end
 -- ** Color Picker for ESP Chams Starts Here **
 
 do
-    local initTbl = GetConfig("visuals.playerChamsColor", nil)
-    local initColor = (type(initTbl) == "table" and initTbl.r and initTbl.g and initTbl.b) and Color3.new(initTbl.r, initTbl.g, initTbl.b) or COLORS.accent
     local api = ColorPickerAPI[playerChamsColorPicker]
     if api then
-        api.OnChange = function(c)
-            SetConfig("visuals.playerChamsColor", { r = c.R, g = c.G, b = c.B })
-            pcall(function()
+        do
+            local prev = api.OnChange
+            api.OnChange = function(c)
+                if prev then prev(c) end
                 for _, inst in ipairs(gui:GetChildren()) do
                     if inst:IsA("Highlight") then
                         if inst.Name == "Rivals_PlayerChams" then
@@ -3520,9 +3629,8 @@ do
                         end
                     end
                 end
-            end)
+            end
         end
-        pcall(function() api.Set(initColor) end)
     end
 end
 
@@ -3554,6 +3662,9 @@ do
                 if typeof(c) == "Color3" then return c end
             end
             local tbl = GetConfig("visuals.espBoxesColor", nil)
+            if typeof(tbl) == "Color3" then
+                return tbl
+            end
             if type(tbl) == "table" and tbl.r and tbl.g and tbl.b then
                 return Color3.new(tbl.r, tbl.g, tbl.b)
             end
@@ -4877,17 +4988,17 @@ do
                     local mousePos = UserInputService:GetMouseLocation()
                     local dx = p.X - mousePos.X
                     local dy = p.Y - mousePos.Y
-                    local dist = math.sqrt(dx*dx + dy*dy)
-                    if dist > 0.5 then
-                        local fpsScale = 1
-                        if frameDt and frameDt > 0 then
-                            local raw = 60 * frameDt
-                            local scale = math.sqrt(raw)
-                            if scale < 0.9 then scale = 0.9 end
-                            if scale > 2 then scale = 2 end
-                            fpsScale = scale
-                        end
-                        if smoothingEnabled then
+                    if smoothingEnabled then
+                        local dist = math.sqrt(dx*dx + dy*dy)
+                        if dist > 0.5 then
+                            local fpsScale = 1
+                            if frameDt and frameDt > 0 then
+                                local raw = 60 * frameDt
+                                local scale = math.sqrt(raw)
+                                if scale < 0.9 then scale = 0.9 end
+                                if scale > 2 then scale = 2 end
+                                fpsScale = scale
+                            end
                             local sv = tonumber(smoothingValue) or 1
                             if sv <= 0 then sv = 1 end
                             aimAccumX = aimAccumX + (dx / sv)
@@ -4913,9 +5024,9 @@ do
                                 toMoveY = math.clamp(toMoveY * fpsScale, -150, 150)
                                 mousemoverel(toMoveX, toMoveY)
                             end
-                        else
-                            mousemoverel(dx * fpsScale, dy * fpsScale)
                         end
+                    else
+                        mousemoverel(dx, dy)
                     end
                     if debugModeEnabled and aimbotInfoLabel and (now - (aimbotInfo_lastTime or 0) >= 0.2) then
                         aimbotInfo_lastTime = now
@@ -5121,7 +5232,6 @@ do
     end
 end
 
-
 -- ** Aimbot Logic Ends Here ** --
 
 ---------------------------------------------------------------------------
@@ -5199,9 +5309,6 @@ do
     end)
 
 end
-
-
-
 
 -- ** Aim Lock Keybind Logic Ends Here ** --
 
@@ -7488,6 +7595,197 @@ do
 end
 
 -- ** Update Log Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Go To Void Logic Starts Here ** --
+
+do
+    local prevCFrame = nil
+    local api = nil
+    local tetherConn = nil
+    local targetCFrame = nil
+    local charAddedConn = nil
+
+    local function startTether(pl)
+        if not pl then return end
+        if not targetCFrame then return end
+        if tetherConn and tetherConn.Disconnect then tetherConn:Disconnect() end
+        tetherConn = RunService.Heartbeat:Connect(function()
+            pcall(function()
+                if not pl or not pl.Character then return end
+                local root = pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    pl.Character:SetPrimaryPartCFrame(targetCFrame)
+                end
+            end)
+        end)
+    end
+
+    local function stopTether()
+        if tetherConn then
+            pcall(function() if tetherConn and tetherConn.Disconnect then tetherConn:Disconnect() end end)
+            tetherConn = nil
+        end
+        if charAddedConn then
+            pcall(function() if charAddedConn and charAddedConn.Disconnect then charAddedConn:Disconnect() end end)
+            charAddedConn = nil
+        end
+    end
+
+    task.defer(function()
+        for i=1,60 do
+            if ToggleAPI and goToVoidToggle then
+                api = ToggleAPI[goToVoidToggle]
+                if api then break end
+            end
+            task.wait(0.1)
+        end
+        if not api then return end
+        local prevOn = api.OnToggle
+        api.OnToggle = function(state)
+            if prevOn then pcall(prevOn, state) end
+            local pl = Players and Players.LocalPlayer
+            if not pl then return end
+            local char = pl.Character
+            local root = char and (char.PrimaryPart or char:FindFirstChild("HumanoidRootPart"))
+            if state then
+                if root then
+                    prevCFrame = root.CFrame
+                else
+                    prevCFrame = nil
+                end
+                local baseY = (root and root.Position.Y) or (prevCFrame and prevCFrame.Y) or 0
+                local tx = (root and root.Position.X or 0) + math.random(-9999999, 9999999)
+                local tz = (root and root.Position.Z or 0) + math.random(-9999999, 9999999)
+                local ty = baseY
+                targetCFrame = CFrame.new(tx, ty, tz)
+                startTether(pl)
+                charAddedConn = pl.CharacterAdded:Connect(function(c)
+                    task.wait(0.1)
+                    startTether(pl)
+                end)
+            else
+                stopTether()
+                if prevCFrame then
+                    pcall(function()
+                        local pl2 = Players and Players.LocalPlayer
+                        if pl2 and pl2.Character and (pl2.Character.PrimaryPart or pl2.Character:FindFirstChild("HumanoidRootPart")) then
+                            pl2.Character:SetPrimaryPartCFrame(prevCFrame)
+                        end
+                    end)
+                    prevCFrame = nil
+                end
+                targetCFrame = nil
+            end
+        end
+    end)
+
+    RegisterUnload(function()
+        stopTether()
+        if prevCFrame then
+            pcall(function()
+                local pl = Players and Players.LocalPlayer
+                if pl and pl.Character and (pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")) then
+                    pl.Character:SetPrimaryPartCFrame(prevCFrame)
+                end
+            end)
+            prevCFrame = nil
+        end
+    end)
+end
+
+
+-- ** Go To Void Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Model Colors Logic Starts Here ** --
+
+do
+    local modelsColorState = {}
+    local lastAppliedColor = nil
+
+    local function revertModelsColor()
+        for part, originalColor in pairs(modelsColorState) do
+            if part and part.Parent then
+                part.Color = originalColor
+            end
+        end
+        modelsColorState = {}
+        lastAppliedColor = nil
+    end
+
+    local function applyModelsColor(color)
+        if not color or typeof(color) ~= "Color3" then return end
+        revertModelsColor()
+        
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and obj.Color and obj.Transparency < 0.99 then
+                modelsColorState[obj] = obj.Color
+                obj.Color = color
+            end
+        end
+        lastAppliedColor = color
+    end
+
+    task.defer(function()
+        for i=1,60 do
+            if ColorPickerAPI and modelsColorPicker then
+                local colorApi = ColorPickerAPI[modelsColorPicker]
+                if colorApi then
+                    local toggleApi = ToggleAPI and ToggleAPI[useModelsColorToggle]
+                    if toggleApi then
+
+                        do
+                            local prev = colorApi.OnChange
+                            colorApi.OnChange = function(col)
+                                if prev then prev(col) end
+                                if toggleApi.Get and toggleApi.Get() then
+                                    applyModelsColor(col)
+                                end
+                            end
+                        end
+
+                        local savedToggle = GetConfig and GetConfig("customization.useModelsColor", nil)
+                        if type(savedToggle) == "boolean" then
+                            toggleApi.Set(savedToggle)
+                        end
+
+                        do
+                            local prev = toggleApi.OnToggle
+                            toggleApi.OnToggle = function(state)
+                                if prev then prev(state) end
+                                if SetConfig then SetConfig("customization.useModelsColor", state) end
+                                if state then
+                                    local c = colorApi.Get and colorApi.Get()
+                                    if c then applyModelsColor(c) end
+                                else
+                                    revertModelsColor()
+                                end
+                            end
+                        end
+
+                        if toggleApi.Get and toggleApi.Get() then
+                            local c = colorApi.Get and colorApi.Get()
+                            if c then applyModelsColor(c) end
+                        end
+
+                        break
+                    end
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+
+    RegisterUnload(function()
+        revertModelsColor()
+    end)
+end
+
+
+-- ** Model Colors Logic Ends Here ** --
 
 ---------------------------------------------------------------------------
 
