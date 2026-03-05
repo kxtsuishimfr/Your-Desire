@@ -3137,8 +3137,7 @@ local goToVoidToggle, goToVoidKeybind
 local voidGroup = makeCollapsibleGroup(rageTab.RightCol, "Void Stuff", false, function(parent)
     goToVoidToggle = makeToggle(parent, "Go to Void", "Teleports you into the void")
     goToVoidKeybind = makeKeyBindButton(parent, "Go to Void Keybind", Enum.KeyCode.N)
-end)
--- ]]
+end) ]]
 
 
 -- ** Save Rage to Config **
@@ -3185,12 +3184,16 @@ end
 local deviceSpoodDropDownList = makeDropDownList(customizationTab.LeftCol, "Device Spoof", {"PC","Phone","Controller","VR"}, 1)
 local modelsColorPicker = makeColorPicker(customizationTab.RightCol, "Models Color", initColor)
 local useModelsColorToggle = makeToggle(customizationTab.RightCol, "Use Models Color", "Applies the color from the color picker to the models in the game.")
+local lightningIntensitySlider = makeSlider(customizationTab.LeftCol, "Lightning Intensity", 1, 200, initialIntensity)
+local useLightningIntensityToggle = makeToggle(customizationTab.LeftCol, "Use Lightning Intensity", "Applies the lightning intensity slider value to the game to make it brighter or darker.")
 
 
 -- ** Save Customization to Config **
 BindDropDownToConfig(deviceSpoodDropDownList, "customization.deviceSpoof", 1)
 BindToggleToConfig(useModelsColorToggle, "customization.useModelsColor", false)
 BindColorPickerToConfig(modelsColorPicker, "customization.modelsColor", initColor)
+BindSliderToConfig(lightningIntensitySlider, "customization.lightningIntensity", 100)
+BindToggleToConfig(useLightningIntensityToggle, "customization.useLightningIntensity", false)
 
 ---------------------------------------------------------------------------
 
@@ -7601,38 +7604,42 @@ end
 
 -- ** Go To Void Logic Starts Here ** --
 
---[[
- do
+
+--[[ do
     local prevCFrame = nil
     local api = nil
     local tetherConn = nil
-    local targetCFrame = nil
+    local voidBasePosition = nil
     local charAddedConn = nil
+    local savedY = nil
+    local spinAngle = 0
+    local SPIN_SPEED = 3
 
     local function startTether(pl)
         if not pl then return end
-        if not targetCFrame then return end
+        if not voidBasePosition or not savedY then return end
+        spinAngle = 0
         if tetherConn and tetherConn.Disconnect then tetherConn:Disconnect() end
         tetherConn = RunService.Heartbeat:Connect(function()
-            pcall(function()
-                if not pl or not pl.Character then return end
-                local root = pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")
-                if root then
-                    pl.Character:SetPrimaryPartCFrame(targetCFrame)
-                end
-            end)
+            if not pl or not pl.Character then return end
+            local root = pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                spinAngle = spinAngle + SPIN_SPEED
+                local quat = CFrame.Angles(0, math.rad(spinAngle), 0)
+                local newCFrame = CFrame.new(voidBasePosition.X, savedY, voidBasePosition.Z) * quat
+                pl.Character:SetPrimaryPartCFrame(newCFrame)
+            end
         end)
     end
 
     local function stopTether()
-        if tetherConn then
-            pcall(function() if tetherConn and tetherConn.Disconnect then tetherConn:Disconnect() end end)
-            tetherConn = nil
-        end
-        if charAddedConn then
-            pcall(function() if charAddedConn and charAddedConn.Disconnect then charAddedConn:Disconnect() end end)
-            charAddedConn = nil
-        end
+        if tetherConn and tetherConn.Disconnect then tetherConn:Disconnect() end
+        tetherConn = nil
+        if charAddedConn and charAddedConn.Disconnect then charAddedConn:Disconnect() end
+        charAddedConn = nil
+        spinAngle = 0
+        voidBasePosition = nil
+        savedY = nil
     end
 
     task.defer(function()
@@ -7646,7 +7653,7 @@ end
         if not api then return end
         local prevOn = api.OnToggle
         api.OnToggle = function(state)
-            if prevOn then pcall(prevOn, state) end
+            if prevOn then prevOn(state) end
             local pl = Players and Players.LocalPlayer
             if not pl then return end
             local char = pl.Character
@@ -7657,11 +7664,10 @@ end
                 else
                     prevCFrame = nil
                 end
-                local baseY = (root and root.Position.Y) or (prevCFrame and prevCFrame.Y) or 0
+                savedY = (root and root.Position.Y) or (prevCFrame and prevCFrame.Y) or 0
                 local tx = (root and root.Position.X or 0) + math.random(-9999999, 9999999)
                 local tz = (root and root.Position.Z or 0) + math.random(-9999999, 9999999)
-                local ty = baseY
-                targetCFrame = CFrame.new(tx, ty, tz)
+                voidBasePosition = Vector3.new(tx, 0, tz)
                 startTether(pl)
                 charAddedConn = pl.CharacterAdded:Connect(function(c)
                     task.wait(0.1)
@@ -7670,15 +7676,12 @@ end
             else
                 stopTether()
                 if prevCFrame then
-                    pcall(function()
-                        local pl2 = Players and Players.LocalPlayer
-                        if pl2 and pl2.Character and (pl2.Character.PrimaryPart or pl2.Character:FindFirstChild("HumanoidRootPart")) then
-                            pl2.Character:SetPrimaryPartCFrame(prevCFrame)
-                        end
-                    end)
+                    local pl2 = Players and Players.LocalPlayer
+                    if pl2 and pl2.Character and (pl2.Character.PrimaryPart or pl2.Character:FindFirstChild("HumanoidRootPart")) then
+                        pl2.Character:SetPrimaryPartCFrame(prevCFrame)
+                    end
                     prevCFrame = nil
                 end
-                targetCFrame = nil
             end
         end
     end)
@@ -7686,17 +7689,14 @@ end
     RegisterUnload(function()
         stopTether()
         if prevCFrame then
-            pcall(function()
-                local pl = Players and Players.LocalPlayer
-                if pl and pl.Character and (pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")) then
-                    pl.Character:SetPrimaryPartCFrame(prevCFrame)
-                end
-            end)
+            local pl = Players and Players.LocalPlayer
+            if pl and pl.Character and (pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")) then
+                pl.Character:SetPrimaryPartCFrame(prevCFrame)
+            end
             prevCFrame = nil
         end
     end)
-end 
--- ]]
+end ]]
 
 
 -- ** Go To Void Logic Ends Here ** --
@@ -7814,6 +7814,96 @@ end
 
 
 -- ** Model Colors Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Lightning Logic Starts Here ** --
+
+do
+    local Lighting = game:GetService("Lighting")
+    local lightningIntensityApi = nil
+    local lightningToggleApi = nil
+    local savedLighting = nil
+
+    local function saveOriginalLighting()
+        if not savedLighting then
+            savedLighting = {
+                Brightness = Lighting.Brightness,
+                Ambient = Lighting.Ambient,
+                OutdoorAmbient = Lighting.OutdoorAmbient,
+                GlobalShadows = Lighting.GlobalShadows,
+            }
+        end
+    end
+
+    local function restoreOriginalLighting()
+        if not savedLighting then return end
+        Lighting.Brightness = savedLighting.Brightness
+        Lighting.Ambient = savedLighting.Ambient
+        Lighting.OutdoorAmbient = savedLighting.OutdoorAmbient
+        Lighting.GlobalShadows = savedLighting.GlobalShadows
+        savedLighting = nil
+    end
+
+    local function applyIntensity(v)
+        if type(v) ~= "number" then return end
+        saveOriginalLighting()
+        local mult = v / 100
+        if mult < 0.01 then mult = 0.01 end
+        if mult > 2 then mult = 2 end
+        local baseB = (savedLighting and savedLighting.Brightness) or Lighting.Brightness
+        local baseAmbient = (savedLighting and savedLighting.Ambient) or Lighting.Ambient
+        local baseOutdoor = (savedLighting and savedLighting.OutdoorAmbient) or Lighting.OutdoorAmbient
+        Lighting.Brightness = baseB * mult
+        Lighting.Ambient = baseAmbient * mult
+        Lighting.OutdoorAmbient = baseOutdoor * mult
+    end
+
+    task.defer(function()
+        for i=1,60 do
+            if SliderAPI and lightningIntensitySlider then lightningIntensityApi = SliderAPI[lightningIntensitySlider] end
+            if ToggleAPI and useLightningIntensityToggle then lightningToggleApi = ToggleAPI[useLightningIntensityToggle] end
+            if lightningIntensityApi and lightningToggleApi then break end
+            task.wait(0.1)
+        end
+        if not lightningIntensityApi or not lightningToggleApi then return end
+
+        do
+            local prev = lightningIntensityApi.OnChange
+            lightningIntensityApi.OnChange = function(v)
+                if prev then prev(v) end
+                if lightningToggleApi.Get and lightningToggleApi.Get() then
+                    applyIntensity(v)
+                end
+            end
+        end
+
+        do
+            local prev = lightningToggleApi.OnToggle
+            lightningToggleApi.OnToggle = function(state)
+                if prev then prev(state) end
+                if state then
+                    local v = lightningIntensityApi.Get and lightningIntensityApi.Get() or (GetConfig and GetConfig("customization.lightningIntensity", 100) or 100)
+                    applyIntensity(v)
+                else
+                    restoreOriginalLighting()
+                end
+            end
+        end
+
+        if lightningToggleApi.Get and lightningToggleApi.Get() then
+            local v = lightningIntensityApi.Get and lightningIntensityApi.Get() or (GetConfig and GetConfig("customization.lightningIntensity", 100) or 100)
+            applyIntensity(v)
+        end
+    end)
+
+    RegisterUnload(function()
+        restoreOriginalLighting()
+    end)
+end
+
+-- ** Lightning Logic Ends Here ** --
+
 
 ---------------------------------------------------------------------------
 
