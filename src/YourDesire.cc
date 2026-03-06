@@ -421,6 +421,7 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders, warn
     btn.TextXAlignment = Enum.TextXAlignment.Left
     local btnPad = Instance.new("UIPadding") btnPad.Parent = btn; btnPad.PaddingLeft = UDim.new(0, 12)
     btn.ZIndex = 10
+    btn:SetAttribute("TabActive", false)
 
     -- ** active tab indicator 
     local indicator = Instance.new("Frame")
@@ -450,11 +451,12 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders, warn
     RegisterThemed(btn, function()
         pcall(function()
             local ind = btn:FindFirstChild("ActiveIndicator")
-            local isActive = ind and ind.BackgroundTransparency == 0
+            local isActive = btn:GetAttribute("TabActive") == true
             if isActive then
                 btn.TextColor3 = COLORS.white
                 btn.BackgroundColor3 = COLORS.accent
                 if ind then ind.BackgroundColor3 = COLORS.accent end
+                if ind then ind.BackgroundTransparency = 0 end
             else
                 btn.TextColor3 = COLORS.tabText
                 btn.BackgroundColor3 = COLORS.panel
@@ -576,14 +578,16 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders, warn
     end
 
     btn.MouseEnter:Connect(function()
-        local isActive = (btn.TextColor3 == COLORS.white)
-        local target = isActive and COLORS.accentHover or COLORS.panelAlt
-        pcall(function() TweenService:Create(btn, TweenInfo.new(0.12), {BackgroundColor3 = target}):Play() end)
+        local isActive = btn:GetAttribute("TabActive") == true
+        local targetBg = isActive and COLORS.accentHover or COLORS.panelAlt
+        local targetText = isActive and COLORS.white or COLORS.tabText
+        pcall(function() TweenService:Create(btn, TweenInfo.new(0.12), {BackgroundColor3 = targetBg, TextColor3 = targetText}):Play() end)
     end)
     btn.MouseLeave:Connect(function()
-        local isActive = (btn.TextColor3 == COLORS.white)
-        local target = isActive and COLORS.accent or COLORS.panel
-        pcall(function() TweenService:Create(btn, TweenInfo.new(0.12), {BackgroundColor3 = target}):Play() end)
+        local isActive = btn:GetAttribute("TabActive") == true
+        local targetBg = isActive and COLORS.accent or COLORS.panel
+        local targetText = isActive and COLORS.white or COLORS.tabText
+        pcall(function() TweenService:Create(btn, TweenInfo.new(0.12), {BackgroundColor3 = targetBg, TextColor3 = targetText}):Play() end)
     end)
 
 ---------------------------------------------------------------------------------
@@ -2949,6 +2953,7 @@ local function selectTab(button, page)
         if c:IsA("TextButton") then
             pcall(function()
                 local targetPos = UDim2.new(c.Position.X.Scale, c.Position.X.Offset, 0, 6)
+                c:SetAttribute("TabActive", false)
                 TweenService:Create(c, tweenInfo, {TextColor3 = COLORS.textDim, Position = targetPos, BackgroundColor3 = COLORS.panel}):Play()
                 local ind = c:FindFirstChild("ActiveIndicator")
                 if ind then TweenService:Create(ind, tweenInfo, {BackgroundTransparency = 1}):Play() end
@@ -2960,6 +2965,7 @@ local function selectTab(button, page)
     end
     -- ** Active visual
     pcall(function()
+        button:SetAttribute("TabActive", true)
         local tgtPos = UDim2.new(button.Position.X.Scale, button.Position.X.Offset, 0, -4)
         TweenService:Create(button, tweenInfo, {TextColor3 = COLORS.white, Position = tgtPos, BackgroundColor3 = COLORS.accent}):Play()
         local ind = button:FindFirstChild("ActiveIndicator")
@@ -3040,20 +3046,24 @@ BindColorPickerToConfig(espBoxesColorPicker, "visuals.espBoxesColor", initColor)
 
 local showGuiOnLoadToggle = makeToggle(settingsTab.LeftCol, "Show GUI On Load")
 local closeOpenGuiKeybind = makeKeyBindButton(settingsTab.LeftCol, "Close/Open GUI", Enum.KeyCode.Insert)
-local autoScaleUIToggle = makeToggle(settingsTab.LeftCol, "Auto-Scale UI")
 local warnIfUnsupportedGameToggle = makeToggle(settingsTab.RightCol, "Warn when executing")
 local showNotificationsToggle = makeToggle(settingsTab.RightCol, "Enable Notifications")
-local debugModeToggle = makeToggle(settingsTab.RightCol, "Generic Debug")
-local debugConfigToggle = makeToggle(settingsTab.RightCol, "Debug Config")
+
+local debugModeToggle, debugConfigToggle, showFpsToggle
+local developerGroup = makeCollapsibleGroup(settingsTab.RightCol, "Developer Options", false, function(parent)
+    debugModeToggle = makeToggle(parent, "Generic Debug")
+    debugConfigToggle = makeToggle(parent, "Debug Config")
+    showFpsToggle = makeToggle(parent, "Show FPS Counter", "Shows current FPS in the corner of the screen.")
+end)
 
 
 -- ** Save Settings to Config **
 BindToggleToConfig(showGuiOnLoadToggle, "settings.showGuiOnLoad", true)
-BindToggleToConfig(autoScaleUIToggle, "settings.autoScaleUI", false)
 BindToggleToConfig(warnIfUnsupportedGameToggle, "settings.warnIfUnsupportedGame", true)
 BindToggleToConfig(showNotificationsToggle, "settings.enableNotifications", true)
 BindToggleToConfig(debugModeToggle, "settings.debugMode", false)
 BindToggleToConfig(debugConfigToggle, "settings.debugConfig", false)
+BindToggleToConfig(showFpsToggle, "settings.showFps", false)
 
 ---------------------------------------------------------------------------
 
@@ -3150,8 +3160,8 @@ BindSliderToConfig(smoothStickingSlider, "rage.smoothStickingIntensity", 20)
 BindToggleToConfig(flyToggle, "rage.fly", false)
 BindKeybindToConfig(flyKeybind, "rage.flyKeybind", Enum.KeyCode.N)
 BindSliderToConfig(flySpeedSlider, "rage.flySpeed", 20)
-BindToggleToConfig(goToVoidToggle, "rage.goToVoid", false) 
-BindKeybindToConfig(goToVoidKeybind, "rage.goToVoidKeybind", Enum.KeyCode.N) 
+--[[BindToggleToConfig(goToVoidToggle, "rage.goToVoid", false) 
+BindKeybindToConfig(goToVoidKeybind, "rage.goToVoidKeybind", Enum.KeyCode.N) ]]
 
 ---------------------------------------------------------------------------
 
@@ -7698,6 +7708,7 @@ end
     end)
 end ]]
 
+-- Temporarily disabled for maintenance, as the current implementation has some issues.
 
 -- ** Go To Void Logic Ends Here ** --
 
@@ -7855,8 +7866,8 @@ do
         local baseAmbient = (savedLighting and savedLighting.Ambient) or Lighting.Ambient
         local baseOutdoor = (savedLighting and savedLighting.OutdoorAmbient) or Lighting.OutdoorAmbient
         Lighting.Brightness = baseB * mult
-        Lighting.Ambient = baseAmbient * mult
-        Lighting.OutdoorAmbient = baseOutdoor * mult
+        Lighting.Ambient = Color3.new(baseAmbient.R * mult, baseAmbient.G * mult, baseAmbient.B * mult)
+        Lighting.OutdoorAmbient = Color3.new(baseOutdoor.R * mult, baseOutdoor.G * mult, baseOutdoor.B * mult)
     end
 
     task.defer(function()
@@ -7903,6 +7914,173 @@ do
 end
 
 -- ** Lightning Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Show FPS Logic Starts Here ** --
+local fpsOverlayGui = nil
+local fpsOverlayFrame = nil
+local fpsLabel = nil
+local fpsRenderConn = nil
+local fpsDragConn = nil
+local lastFpsTime = 0
+local frameCount = 0
+local currentFps = 0
+local fpsUpdateInterval = 0.5
+
+local function CreateFpsOverlay()
+    if fpsOverlayGui then return fpsOverlayGui end
+    local ok
+    fpsOverlayGui = Instance.new("ScreenGui")
+    fpsOverlayGui.Name = "FpsOverlay"
+    fpsOverlayGui.ResetOnSpawn = false
+    if gui and gui.Parent then
+        fpsOverlayGui.Parent = gui.Parent
+    else
+        fpsOverlayGui.Parent = game:GetService("CoreGui")
+    end
+
+    fpsOverlayFrame = Instance.new("Frame")
+    fpsOverlayFrame.Name = "FpsOverlayFrame"
+    fpsOverlayFrame.Size = UDim2.new(0, 120, 0, 50)
+    fpsOverlayFrame.Position = UDim2.new(0.5, -60, 0, 15)
+    fpsOverlayFrame.AnchorPoint = Vector2.new(0.5, 0)
+    fpsOverlayFrame.BackgroundColor3 = COLORS.panelDark
+    fpsOverlayFrame.BorderSizePixel = 0
+    fpsOverlayFrame.Active = true
+    fpsOverlayFrame.Parent = fpsOverlayGui
+
+    local savedPos = GetConfig and GetConfig("ui.fpsOverlayPos", nil) or nil
+    if type(savedPos) == "table" then
+        local xs = savedPos.xScale or 0.5
+        local xo = savedPos.xOffset or -60
+        local ys = savedPos.yScale or 0
+        local yo = savedPos.yOffset or 15
+        fpsOverlayFrame.Position = UDim2.new(xs, xo, ys, yo)
+    end
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = fpsOverlayFrame
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = COLORS.accent
+    stroke.Thickness = 2
+    stroke.Parent = fpsOverlayFrame
+
+    fpsLabel = Instance.new("TextLabel")
+    fpsLabel.Name = "FpsLabel"
+    fpsLabel.Size = UDim2.new(1, -10, 1, -10)
+    fpsLabel.Position = UDim2.new(0, 5, 0, 5)
+    fpsLabel.BackgroundTransparency = 1
+    fpsLabel.TextColor3 = COLORS.accent
+    fpsLabel.Font = Enum.Font.GothamBold
+    fpsLabel.TextSize = 20
+    fpsLabel.TextScaled = false
+    fpsLabel.Text = "FPS: 0"
+    fpsLabel.Parent = fpsOverlayFrame
+
+    RegisterThemed(fpsOverlayFrame, function()
+        fpsOverlayFrame.BackgroundColor3 = COLORS.panelDark
+        if fpsLabel then fpsLabel.TextColor3 = COLORS.accent end
+        local strokes = {}
+        for _,c in ipairs(fpsOverlayFrame:GetChildren()) do
+            if c:IsA("UIStroke") then table.insert(strokes, c) end
+        end
+        if strokes[1] then strokes[1].Color = COLORS.accent end
+    end)
+
+    local dragging, dragStart, startPos
+    fpsOverlayFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = UserInputService:GetMouseLocation()
+            startPos = fpsOverlayFrame.Position
+        end
+    end)
+    fpsOverlayFrame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+            if fpsOverlayFrame and fpsOverlayFrame.Position then
+                local p = fpsOverlayFrame.Position
+                if SetConfig then
+                    SetConfig("ui.fpsOverlayPos", { xScale = p.X.Scale, xOffset = p.X.Offset, yScale = p.Y.Scale, yOffset = p.Y.Offset })
+                end
+            end
+        end
+    end)
+    fpsDragConn = UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement and dragStart and startPos then
+            local now = UserInputService:GetMouseLocation()
+            local delta = now - dragStart
+            fpsOverlayFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+
+    return fpsOverlayGui
+end
+
+local function DestroyFpsOverlay()
+    if fpsRenderConn then
+        fpsRenderConn:Disconnect()
+        fpsRenderConn = nil
+    end
+    if fpsDragConn then
+        fpsDragConn:Disconnect()
+        fpsDragConn = nil
+    end
+    if fpsOverlayGui then
+        fpsOverlayGui:Destroy()
+        fpsOverlayGui = nil
+        fpsOverlayFrame = nil
+        fpsLabel = nil
+    end
+    frameCount = 0
+    currentFps = 0
+    lastFpsTime = 0
+end
+
+local function UpdateFpsDisplay()
+    if not fpsLabel or not fpsLabel.Parent then return end
+    fpsLabel.Text = "FPS: " .. math.floor(currentFps or 0)
+end
+
+local api = showFpsToggle and ToggleAPI and ToggleAPI[showFpsToggle]
+if api then
+    local prev = api.OnToggle
+    api.OnToggle = function(state)
+        if state then
+            CreateFpsOverlay()
+            if fpsRenderConn then fpsRenderConn:Disconnect() end
+            frameCount = 0
+            lastFpsTime = tick()
+            fpsRenderConn = RunService.RenderStepped:Connect(function()
+                frameCount = frameCount + 1
+                local now = tick()
+                local elapsed = now - lastFpsTime
+                if elapsed >= fpsUpdateInterval then
+                    currentFps = frameCount / elapsed
+                    UpdateFpsDisplay()
+                    frameCount = 0
+                    lastFpsTime = now
+                end
+            end)
+        else
+            DestroyFpsOverlay()
+        end
+        if type(prev) == "function" then prev(state) end
+    end
+    if api.Get and api.Get() then
+        api.OnToggle(true)
+    end
+end
+
+RegisterUnload(function()
+    DestroyFpsOverlay()
+end)
+
+
+-- ** Show FPS Logic Ends Here ** --
 
 
 ---------------------------------------------------------------------------
