@@ -2337,14 +2337,14 @@ local function makeDebugLabel(initialText)
     bg.Size = Vector2.new(324, math.max(20, nlines * 18 + 8))
     bg.Position = Vector2.new(8, 8 + makeDebugLabel_offset)
     bg.ZIndex = 9999
-    bg.Visible = true
+    bg.Visible = false
 
     local txt = Drawing.new("Text")
     txt.Text = table.concat(lines, "\n")
     txt.Size = 14
     txt.Color = (COLORS and COLORS.text) or Color3.new(1,1,1)
     txt.Position = Vector2.new(16, 12 + makeDebugLabel_offset)
-    txt.Visible = true
+    txt.Visible = false
     txt.Center = false
     txt.Outline = true
     txt.ZIndex = 10000
@@ -2381,8 +2381,18 @@ local function makeDebugLabel(initialText)
     end
 
     table.insert(DEBUG_LABELS, api)
-    DEBUG_VISUALS[api] = { bg = bg, txt = txt, lines = nlines, visible = true }
+    DEBUG_VISUALS[api] = { bg = bg, txt = txt, lines = nlines, visible = false }
     makeDebugLabel_offset = makeDebugLabel_offset + 28
+    local curState = false
+    local ok, tApi = pcall(function() return (ToggleAPI and ToggleAPI[debugModeToggle]) end)
+    if ok and tApi and type(tApi.Get) == "function" then
+        local sOk, s = pcall(function() return tApi.Get() end)
+        curState = sOk and not not s
+    else
+        local cfgOk, cfg = pcall(function() return GetConfig and GetConfig("settings.debugMode", false) end)
+        curState = cfgOk and not not cfg
+    end
+    api.Show(curState)
     reflowDebugLabels()
     return api
 end
