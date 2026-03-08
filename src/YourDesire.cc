@@ -143,6 +143,26 @@ local function ApplyTheme(name)
 
     local function colorDist(a,b)
         local dr = a.r - b.r
+
+    -- keep debug visuals in sync with the Generic Debug toggle
+    local function updateAllDebugVisibility(state)
+        for _, api in ipairs(DEBUG_LABELS) do
+            pcall(function() if api and type(api.Show) == "function" then api.Show(not not state) end end)
+        end
+        reflowDebugLabels()
+    end
+
+    do
+        local ok, tApi = pcall(function() return (ToggleAPI and ToggleAPI[debugModeToggle]) end)
+        if ok and tApi then
+            local prev = tApi.OnToggle
+            tApi.OnToggle = function(s)
+                if type(prev) == "function" then pcall(prev, s) end
+                updateAllDebugVisibility(s)
+            end
+        end
+    end
+
         local dg = a.g - b.g
         local db = a.b - b.b
         return dr*dr + dg*dg + db*db
@@ -2243,38 +2263,127 @@ end
 
 local makeDebugLabel_offset = 0
 local DEBUG_LABELS = {}
+local DEBUG_VISUALS = {}
+local DEBUG_MAIN_BG = nil
+local function ensureDebugContainer()
+    if DEBUG_MAIN_BG and DEBUG_MAIN_BG.Remove == nil then DEBUG_MAIN_BG = nil end
+    if DEBUG_MAIN_BG then return end
+    DEBUG_MAIN_BG = Drawing.new("Square")
+    DEBUG_MAIN_BG.Filled = true
+    DEBUG_MAIN_BG.Color = (COLORS and COLORS.panel) or Color3.fromRGB(28,24,38)
+    DEBUG_MAIN_BG.Transparency = 1
+    DEBUG_MAIN_BG.Position = Vector2.new(6, 6)
+    DEBUG_MAIN_BG.Size = Vector2.new(340, 24)
+    DEBUG_MAIN_BG.ZIndex = 9998
+    DEBUG_MAIN_BG.Visible = false
+end
+
+local function reflowDebugLabels()
+    ensureDebugContainer()
+    local pad = 6
+    local xpad = 8
+    local lineH = 18
+    local y = 8
+    local anyVisible = false
+    local totalH = pad
+    for i, api in ipairs(DEBUG_LABELS) do
+        local vis = DEBUG_VISUALS[api]
+        if vis then
+            local lines = (vis.lines and vis.lines) or 1
+            local itemH = math.max(20, lines * lineH + 8)
+            if vis.bg and vis.bg.Remove then
+                vis.bg.Position = Vector2.new(xpad, y)
+                vis.bg.Size = Vector2.new(324, itemH)
+                vis.bg.Visible = (vis.visible ~= false)
+            end
+            if vis.txt and vis.txt.Remove then
+                vis.txt.Position = Vector2.new(xpad + 8, y + 6)
+                vis.txt.Visible = (vis.visible ~= false)
+            end
+            if (vis.visible ~= false) then anyVisible = true end
+            y = y + itemH + 4
+            totalH = totalH + itemH + 4
+        end
+    end
+    DEBUG_MAIN_BG.Size = Vector2.new(340, math.max(24, totalH))
+    DEBUG_MAIN_BG.Visible = anyVisible
+end
+
+local function wrapTextToLines(text, maxChars)
+    if not text or text == "" then return {""} end
+    local words = {}
+    for w in string.gmatch(tostring(text), "%S+") do table.insert(words, w) end
+    local lines = {}
+    local cur = ""
+    for _, w in ipairs(words) do
+        if #cur == 0 then cur = w
+        elseif #cur + 1 + #w <= maxChars then cur = cur .. " " .. w
+        else table.insert(lines, cur); cur = w end
+    end
+    if #cur > 0 then table.insert(lines, cur) end
+    return lines
+end
+
 local function makeDebugLabel(initialText)
+    ensureDebugContainer()
+    local maxChars = 40
+    local lines = wrapTextToLines(initialText or "", maxChars)
+    local nlines = #lines
+
+    local bg = Drawing.new("Square")
+    bg.Filled = true
+    bg.Color = (COLORS and COLORS.panelAlt) or Color3.fromRGB(20,20,20)
+    bg.Transparency = 1
+    bg.Size = Vector2.new(324, math.max(20, nlines * 18 + 8))
+    bg.Position = Vector2.new(8, 8 + makeDebugLabel_offset)
+    bg.ZIndex = 9999
+    bg.Visible = true
+
     local txt = Drawing.new("Text")
-    txt.Text = tostring(initialText or "")
-    txt.Size = 16
-    txt.Color = Color3.new(1, 1, 1)
-    txt.Position = Vector2.new(8, 8 + makeDebugLabel_offset)
-    txt.Visible = false
+    txt.Text = table.concat(lines, "\n")
+    txt.Size = 14
+    txt.Color = (COLORS and COLORS.text) or Color3.new(1,1,1)
+    txt.Position = Vector2.new(16, 12 + makeDebugLabel_offset)
+    txt.Visible = true
     txt.Center = false
     txt.Outline = true
-    txt.ZIndex = 10
-    makeDebugLabel_offset = makeDebugLabel_offset + 28
+    txt.ZIndex = 10000
 
     local api = {}
-    -- initialize visibility from config once
-    do
-        local vis = false
-        if type(GetConfig) == "function" then
-            pcall(function() vis = GetConfig("settings.debugMode", false) end)
-        end
-        txt.Visible = not not vis
-    end
     api.Set = function(text)
-        txt.Text = tostring(text or "")
+        pcall(function()
+            local newLines = wrapTextToLines(text or "", maxChars)
+            txt.Text = table.concat(newLines, "\n")
+            local vis = DEBUG_VISUALS[api]
+            if vis then vis.lines = #newLines end
+            reflowDebugLabels()
+        end)
     end
-    api.Show = function(v) txt.Visible = not not v end
+    api.Show = function(v)
+        local visb = not not v
+        pcall(function()
+            local vis = DEBUG_VISUALS[api]
+            if vis then vis.visible = visb end
+            reflowDebugLabels()
+        end)
+    end
     api.Destroy = function()
-        txt:Remove()
+        pcall(function()
+            local vis = DEBUG_VISUALS[api]
+            if vis and vis.bg and vis.bg.Remove then vis.bg:Remove() end
+            if vis and vis.txt and vis.txt.Remove then vis.txt:Remove() end
+        end)
         for i, v in ipairs(DEBUG_LABELS) do
             if v == api then table.remove(DEBUG_LABELS, i); break end
         end
+        DEBUG_VISUALS[api] = nil
+        reflowDebugLabels()
     end
+
     table.insert(DEBUG_LABELS, api)
+    DEBUG_VISUALS[api] = { bg = bg, txt = txt, lines = nlines, visible = true }
+    makeDebugLabel_offset = makeDebugLabel_offset + 28
+    reflowDebugLabels()
     return api
 end
 
@@ -3016,15 +3125,21 @@ end)
 -------------------------------------------------------------------------
 
 -- ** Visuals Tab Stuff 
+local playerChamsToggle, playerChamsColorPicker, glowChamsToggle, glowIntensitySlider, playerHealthToggle, showHealthKeybind, espBoxesToggle, espBoxesColorPicker
+local playerStuffGroup = makeCollapsibleGroup(visualTab.LeftCol, "Player Visuals", false, function (parent)
+    playerChamsToggle = makeToggle(parent, "Players Chams")
+    playerChamsColorPicker = makeColorPicker(parent, "Players Chams Color", initColor)
+    glowChamsToggle = makeToggle(parent, "Glow Chams", "Does what player chams does but with a glow effect.")
+    glowIntensitySlider = makeSlider(parent, "Glow Intensity", 0, 100, initialIntensity)
+    playerHealthToggle = makeToggle(parent, "Player Health", "Show health for players in the game.")
+    showHealthKeybind = makeKeyBindButton(parent, "Show Health Keybind", Enum.KeyCode.P)
+    espBoxesToggle = makeToggle(parent, "ESP Boxes")
+    espBoxesColorPicker = makeColorPicker(parent, "ESP Boxes Color", initColor)
+end)
 
-local playerChamsToggle = makeToggle(visualTab.LeftCol, "Players Chams")
-local playerChamsColorPicker = makeColorPicker(visualTab.RightCol, "Players Chams Color", initColor)
-local glowChamsToggle = makeToggle(visualTab.LeftCol, "Glow Chams", "Does what player chams does but with a glow effect.")
-local glowIntensitySlider = makeSlider(visualTab.RightCol, "Glow Intensity", 0, 100, initialIntensity)
-local playerHealthToggle = makeToggle(visualTab.LeftCol, "Player Health", "Show health for players in the game.")
-local showHealthKeybind = makeKeyBindButton(visualTab.RightCol, "Show Health Keybind", Enum.KeyCode.P)
-local espBoxesToggle = makeToggle(visualTab.LeftCol, "ESP Boxes")
-local espBoxesColorPicker = makeColorPicker(visualTab.LeftCol, "ESP Boxes Color", initColor)
+local hideSmokeToggle = makeToggle(visualTab.RightCol, "Hide Smoke", "Removes smoke visuals from your screen.")
+-- local hideFlashbangToggle = makeToggle(visualTab.RightCol, "Hide Flashbang", "Removes flashbang visuals from your screen.")
+
 local showEnemyWeaponsToggle = makeToggle(visualTab.RightCol, "Show Enemy Weapons", "Shows the weapons of enemies on your screen even.")
 
 
@@ -3038,6 +3153,8 @@ BindToggleToConfig(espBoxesToggle, "visuals.espBoxes", false)
 BindToggleToConfig(showEnemyWeaponsToggle, "visuals.showEnemyWeapons", false)
 BindColorPickerToConfig(playerChamsColorPicker, "visuals.playerChamsColor", initColor)
 BindColorPickerToConfig(espBoxesColorPicker, "visuals.espBoxesColor", initColor)
+BindToggleToConfig(hideSmokeToggle, "visuals.hideSmoke", false)
+-- BindToggleToConfig(hideFlashbangToggle, "visuals.hideFlashbang", false)
 
 
 ---------------------------------------------------------------------------
@@ -3072,7 +3189,7 @@ BindToggleToConfig(showFpsToggle, "settings.showFps", false)
 local initialSmoothing = GetConfig("combat.aimbotSmoothing", 1) or 1
 local initialAimbotFOV = GetConfig("combat.aimbotFOV", 700) or 700
 local initialZone = GetConfig("combat.aimbotTargetZone", 1) or 1500
-local aimbotToggle, enableAimbotKeybind, useAimbotSmoothingToggle, smoothingSlider, aimbotFOVSlider, aimnbotTargetZoneToggle, aimbotTargetZoneSlider, aimLockKeybind, aimPredictionToggle, persistentAimbotToggle
+local aimbotToggle, enableAimbotKeybind, useAimbotSmoothingToggle, smoothingSlider, aimbotFOVSlider, aimnbotTargetZoneToggle, aimbotTargetZoneSlider, aimLockKeybind, aimPredictionToggle, persistentAimbotToggle, targetBehindWallsToggle, drawFovCircleToggle
 
 -- Aimbot: General settings
 local aimbotGroup = makeCollapsibleGroup(combatTab.LeftCol, "Aimbot — General", false, function(parent)
@@ -7614,6 +7731,8 @@ end
 
 -- ** Go To Void Logic Starts Here ** --
 
+-- this will remain disabled until i add silent aim otherwise its useless
+-- u can uncomment it but its not gonna be useful for now
 
 --[[ do
     local prevCFrame = nil
@@ -7708,7 +7827,6 @@ end
     end)
 end ]]
 
--- Temporarily disabled for maintenance, as the current implementation has some issues.
 
 -- ** Go To Void Logic Ends Here ** --
 
@@ -8081,6 +8199,108 @@ end)
 
 
 -- ** Show FPS Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Hide Smoke Visuals Logic Starts Here ** --
+
+do
+    local _hideSmokeRunning = false
+    local _worker = nil
+
+    local function startHideSmoke()
+        if _hideSmokeRunning then return end
+        _hideSmokeRunning = true
+        _worker = task.spawn(function()
+            while _hideSmokeRunning do
+                for _, obj in ipairs(Workspace:GetChildren()) do
+                    if obj and type(obj.Name) == "string" and obj.Name == "Smoke Grenade" then
+                        if obj.Destroy then obj:Destroy() end
+                    end
+                end
+                task.wait(0.1)
+            end
+        end)
+    end
+
+    local function stopHideSmoke()
+        _hideSmokeRunning = false
+        _worker = nil
+    end
+
+    local tApi = (ToggleAPI and ToggleAPI[hideSmokeToggle]) or nil
+    if tApi then
+        local prev = tApi.OnToggle
+        tApi.OnToggle = function(state)
+            if type(prev) == "function" then pcall(prev, state) end
+            if state then startHideSmoke() else stopHideSmoke() end
+        end
+        if tApi.Get and tApi.Get() then startHideSmoke() end
+    else
+        if GetConfig and GetConfig("visuals.hideSmoke", false) then startHideSmoke() end
+    end
+
+    RegisterUnload(function()
+        _hideSmokeRunning = false
+    end)
+end
+
+ -- ** Hide Smoke Visuals Logic Ends Here ** --
+
+ ---------------------------------------------------------------------------
+
+
+
+-- ** Hide Flashbang Visuals Logic Starts Here ** --
+
+--[[
+dont uncomment it lol
+i thought its gonna be like the smoke thingy but its not
+TO DO: FIX THIS LATER
+]]
+
+--[[ do
+    local _hideFlashRunning = false
+    local _worker = nil
+
+    local function startHideFlash()
+        if _hideFlashRunning then return end
+        _hideFlashRunning = true
+        _worker = task.spawn(function()
+            while _hideFlashRunning do
+                local obj = workspace:FindFirstChild("FlashbangEffect")
+                if obj then
+                    if obj.Destroy then obj:Destroy() end
+                end
+                task.wait(0.1)
+            end
+        end)
+    end
+
+    local function stopHideFlash()
+        _hideFlashRunning = false
+        _worker = nil
+    end
+
+    local tApi = (ToggleAPI and ToggleAPI[hideFlashbangToggle]) or nil
+    if tApi then
+        local prev = tApi.OnToggle
+        tApi.OnToggle = function(state)
+            if type(prev) == "function" then pcall(prev, state) end
+            if state then startHideFlash() else stopHideFlash() end
+        end
+        if tApi.Get and tApi.Get() then startHideFlash() end
+    else
+        if GetConfig and GetConfig("visuals.hideFlashbang", false) then startHideFlash() end
+    end
+
+    RegisterUnload(function()
+        _hideFlashRunning = false
+    end)
+end ]]
+
+
+-- ** Hide Flashbang Visuals Logic Ends Here ** --
 
 
 ---------------------------------------------------------------------------
