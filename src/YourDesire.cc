@@ -54,8 +54,6 @@ local COLORS = {
 
 -------------------------------------------------------
 
--- ** Theme System ** --
-
 local function shallowCopy(t)
     local o = {}
     for k,v in pairs(t) do o[k] = v end
@@ -143,26 +141,6 @@ local function ApplyTheme(name)
 
     local function colorDist(a,b)
         local dr = a.r - b.r
-
-    -- keep debug visuals in sync with the Generic Debug toggle
-    local function updateAllDebugVisibility(state)
-        for _, api in ipairs(DEBUG_LABELS) do
-            pcall(function() if api and type(api.Show) == "function" then api.Show(not not state) end end)
-        end
-        reflowDebugLabels()
-    end
-
-    do
-        local ok, tApi = pcall(function() return (ToggleAPI and ToggleAPI[debugModeToggle]) end)
-        if ok and tApi then
-            local prev = tApi.OnToggle
-            tApi.OnToggle = function(s)
-                if type(prev) == "function" then pcall(prev, s) end
-                updateAllDebugVisibility(s)
-            end
-        end
-    end
-
         local dg = a.g - b.g
         local db = a.b - b.b
         return dr*dr + dg*dg + db*db
@@ -423,6 +401,9 @@ if not ok then
 end
 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- ** Helper functions start here
+
 
 -- ** makeTab
 
@@ -1362,6 +1343,7 @@ local function makeCollapsibleGroup(parent, title, defaultOpen, builderFn)
 
     local function refreshSizes()
         local contentH = innerLayout.AbsoluteContentSize.Y
+        bodyClip.ClipsDescendants = not opened
         if opened then
             grp.Size = UDim2.new(1, extraWidth, 0, headerHeight + contentH)
             bodyClip.Size = UDim2.new(1,0,0, contentH)
@@ -1379,6 +1361,7 @@ local function makeCollapsibleGroup(parent, title, defaultOpen, builderFn)
 
     local function setOpen(open)
         opened = not not open
+        bodyClip.ClipsDescendants = not opened
         local contentH = innerLayout.AbsoluteContentSize.Y
         if opened then
             TweenService:Create(grp, tweenInfo, {Size = UDim2.new(1, extraWidth, 0, headerHeight + contentH)}):Play()
@@ -1606,6 +1589,7 @@ local function makeKeyBindButton(parent, title, defaultKey)
     frame.Size = UDim2.new(1,0,0,34)
     frame.BackgroundTransparency = 1
     frame.Parent = parent
+    
 
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0.5, -6, 1, 0)
@@ -1645,12 +1629,53 @@ local function makeKeyBindButton(parent, title, defaultKey)
     local listening = false
     local pending = nil
     local inputConn = nil
+    local UserInputService = game:GetService("UserInputService")
+    local keyListenerConn = nil
+    local function stopKeyListener()
+        if keyListenerConn and keyListenerConn.Disconnect then keyListenerConn:Disconnect() end
+        keyListenerConn = nil
+    end
+    local function startKeyListener(bound)
+        stopKeyListener()
+        if not (typeof(bound) == "EnumItem" and bound.EnumType == Enum.KeyCode) then return end
+        keyListenerConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+            local isDisabled = false
+            local api = KeybindAPI[frame]
+            if api and type(api.IsDisabled) == "function" then
+                isDisabled = api.IsDisabled()
+            else
+                isDisabled = (DisabledKeybinds and DisabledKeybinds[frame] == true) or false
+            end
+            if input.KeyCode == bound and not isDisabled then
+                if api and type(api.OnActivate) == "function" then
+                    api.OnActivate(bound)
+                end
+            end
+        end)
+    end
+
+    
 
     local function updateText()
         if listening then
             btn.Text = 'Press enter to save keybind to "' .. (title or "keybind") .. '"!'
         else
-            btn.Text = keyName(current)
+            local isDisabled = false
+            local api = KeybindAPI[frame]
+            if api and type(api.IsDisabled) == "function" then
+                isDisabled = api.IsDisabled()
+            else
+                isDisabled = (DisabledKeybinds and DisabledKeybinds[frame] == true) or false
+            end
+            if isDisabled then
+                btn.Text = keyName(current) .. " (Disabled)"
+                btn.TextColor3 = (COLORS and COLORS.divider) or Color3.fromRGB(150,150,150)
+            else
+                btn.Text = keyName(current)
+                btn.TextColor3 = COLORS.text
+            end
         end
     end
 
@@ -1693,9 +1718,166 @@ local function makeKeyBindButton(parent, title, defaultKey)
         Set = function(k)
             if typeof(k) == "EnumItem" then current = k else current = nil end
             updateText()
+            startKeyListener(current)
         end,
         OnBind = nil,
+        OnActivate = nil,
     }
+
+    KeybindAPI[frame].Refresh = updateText
+
+    startKeyListener(current)
+
+    -- ** right click to enalbe/disable keybind
+    do
+        local popup
+        local popupConn
+        local leaveConn
+        btn.MouseButton2Click:Connect(function()
+            if popup and popup.Parent then popup:Destroy() popup = nil end
+            if popupConn then if typeof(popupConn) == "RBXScriptConnection" then popupConn:Disconnect() end popupConn = nil end
+            if leaveConn then if typeof(leaveConn) == "RBXScriptConnection" then leaveConn:Disconnect() end leaveConn = nil end
+
+            popup = Instance.new("Frame")
+            popup.Size = UDim2.new(0, 100, 0, 36)
+            popup.Position = UDim2.new(1, -4, 0, 28)
+            popup.AnchorPoint = Vector2.new(1, 0)
+            popup.BackgroundColor3 = COLORS.panelDark
+            popup.Parent = frame
+            popup.ZIndex = 9999
+            local pc = Instance.new("UICorner") pc.CornerRadius = UDim.new(0,6) pc.Parent = popup
+
+            local actionFrame = makeButton(popup, "")
+            actionFrame.Size = UDim2.new(0, 40, 0, 20)
+            actionFrame.BackgroundTransparency = 1
+            actionFrame.Position = UDim2.new(0.5, 0, 0, 8)
+            actionFrame.AnchorPoint = Vector2.new(0.5, 0)
+            local innerBtn = nil
+            for _,c in ipairs(actionFrame:GetChildren()) do if c:IsA("TextButton") then innerBtn = c break end end
+            if innerBtn then
+                innerBtn.Size = UDim2.new(1, 0, 1, 0)
+                local isDisabled = false
+                local api = KeybindAPI[frame]
+                if api and type(api.IsDisabled) == "function" then
+                    isDisabled = api.IsDisabled()
+                else
+                    isDisabled = (DisabledKeybinds and DisabledKeybinds[frame] == true) or false
+                end
+                innerBtn.Text = (isDisabled and "Enable" or "Disable")
+                innerBtn.ZIndex = 9999
+                innerBtn.BackgroundColor3 = COLORS.panel
+            end
+            if innerBtn then
+                innerBtn.MouseButton1Click:Connect(function()
+                    local api = KeybindAPI[frame]
+                    if api and type(api.ToggleDisabled) == "function" then
+                        api.ToggleDisabled()
+                    elseif api and type(api.SetDisabled) == "function" and type(api.IsDisabled) == "function" then
+                        api.SetDisabled(not api.IsDisabled())
+                    else
+                        DisabledKeybinds = DisabledKeybinds or {}
+                        DisabledKeybinds[frame] = not DisabledKeybinds[frame]
+                        if api and type(api.SetDisabledAppearance) == "function" then api.SetDisabledAppearance(DisabledKeybinds[frame]) end
+                    end
+                    if api and type(api.Refresh) == "function" then api.Refresh() end
+                    if popup and popup.Parent then popup:Destroy() popup = nil end
+                    if popupConn then if typeof(popupConn) == "RBXScriptConnection" then popupConn:Disconnect() end popupConn = nil end
+                end)
+            end
+
+            local closeFrame = makeButton(popup, "")
+            closeFrame.Size = UDim2.new(0, 18, 0, 18)
+            closeFrame.Position = UDim2.new(1, -6, 0, 6)
+            closeFrame.AnchorPoint = Vector2.new(1, 0)
+            local closeInner = nil
+            for _,c in ipairs(closeFrame:GetChildren()) do if c:IsA("TextButton") then closeInner = c break end end
+            if closeInner then
+                closeInner.Size = UDim2.new(1, 0, 1, 0)
+                closeInner.Text = "X"
+                closeInner.ZIndex = 9999
+                closeInner.BackgroundTransparency = 1
+            end
+            if type(ButtonAPI) == "table" and ButtonAPI[closeFrame] then
+                ButtonAPI[closeFrame].OnClick = function()
+                    if popup and popup.Parent then popup:Destroy() popup = nil end
+                    if popupConn then if typeof(popupConn) == "RBXScriptConnection" then popupConn:Disconnect() end popupConn = nil end
+                end
+            end
+
+            local actionBtn = innerBtn
+            if not actionBtn then
+                for _,c in ipairs(actionFrame:GetChildren()) do if c:IsA("TextButton") then actionBtn = c break end end
+            end
+            local closeBtn = closeInner
+            if not closeBtn then
+                for _,c in ipairs(closeFrame:GetChildren()) do if c:IsA("TextButton") then closeBtn = c break end end
+            end
+            if actionBtn then
+                actionBtn.MouseButton1Click:Connect(function()
+                    local api = KeybindAPI[frame]
+                    if api and type(api.ToggleDisabled) == "function" then
+                        api.ToggleDisabled()
+                    elseif api and type(api.SetDisabled) == "function" and type(api.IsDisabled) == "function" then
+                        api.SetDisabled(not api.IsDisabled())
+                    else
+                        DisabledKeybinds = DisabledKeybinds or {}
+                        DisabledKeybinds[frame] = not DisabledKeybinds[frame]
+                        if api and type(api.SetDisabledAppearance) == "function" then api.SetDisabledAppearance(DisabledKeybinds[frame]) end
+                    end
+                    if api and type(api.Refresh) == "function" then api.Refresh() end
+                    if popup and popup.Parent then popup:Destroy() popup = nil end
+                    if popupConn then if typeof(popupConn) == "RBXScriptConnection" then popupConn:Disconnect() end popupConn = nil end
+                end)
+            end
+            if closeBtn then
+                closeBtn.MouseButton1Click:Connect(function()
+                    if popup and popup.Parent then popup:Destroy() popup = nil end
+                    if popupConn then if typeof(popupConn) == "RBXScriptConnection" then popupConn:Disconnect() end popupConn = nil end
+                end)
+            end
+
+            leaveConn = popup.MouseEnter:Connect(function()
+                if leaveConn then if typeof(leaveConn) == "RBXScriptConnection" then leaveConn:Disconnect() end end
+                leaveConn = nil
+            end)
+            leaveConn = popup.MouseLeave:Connect(function()
+                task.delay(2, function()
+                    if popup and popup.Parent then popup:Destroy() popup = nil end
+                    if popupConn then if typeof(popupConn) == "RBXScriptConnection" then popupConn:Disconnect() end popupConn = nil end
+                end)
+            end)
+
+            popupConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+                if gameProcessed then return end
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    local target = input.Target
+                    if popup and popup.Parent then
+                        local pos = UserInputService:GetMouseLocation()
+                        local function inside(inst)
+                            if not inst then return false end
+                            if typeof(inst) ~= "Instance" then return false end
+                            local ap = inst.AbsolutePosition
+                            local as = inst.AbsoluteSize
+                            return pos.X >= ap.X and pos.X <= ap.X + as.X and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
+                        end
+                        if not (inside(popup) or inside(btn)) then
+                            popup:Destroy()
+                            popup = nil
+                            if popupConn then if typeof(popupConn) == "RBXScriptConnection" then popupConn:Disconnect() end popupConn = nil end
+                        end
+                    end
+                end
+            end)
+        end)
+    end
+
+    KeybindAPI[frame].SetDisabledAppearance = function(disabled)
+        if disabled then
+            btn.TextColor3 = (COLORS and COLORS.divider) or Color3.fromRGB(150,150,150)
+        else
+            btn.TextColor3 = COLORS.text
+        end
+    end
 
     -- ** layout order
     local maxOrder = 0
@@ -1709,6 +1891,7 @@ local function makeKeyBindButton(parent, title, defaultKey)
     updateText()
     return frame
 end
+
 
 --------------------------------------------------------------------------
 
@@ -2397,6 +2580,122 @@ local function makeDebugLabel(initialText)
     return api
 end
 
+-------------------------------------------------------------------------
+
+-- ** makeTopLabel
+
+do
+    local CoreGui = game:GetService("CoreGui")
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "Rivals_TopLabels"
+    local okParent = pcall(function() ScreenGui.Parent = CoreGui end)
+
+    local container = Instance.new("Frame")
+    container.Name = "TopLabelsContainer"
+    container.AnchorPoint = Vector2.new(0.5, 0)
+    container.Position = UDim2.new(0.5, 0, 0, 8)
+    container.BackgroundTransparency = 1
+    container.Size = UDim2.new(0, 0, 0, 0)
+    container.AutomaticSize = Enum.AutomaticSize.XY
+    container.Parent = ScreenGui
+    container.ZIndex = (TOP_Z or 600) + 5
+
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 8)
+    layout.Parent = container
+
+    local TopLabelManager = {
+        _labels = {},
+        _max = 6,
+    }
+
+    local function applyTheme(lblFrame, txtLabel, stroke)
+        RegisterThemed(lblFrame, function()
+            if lblFrame and lblFrame:IsA("GuiObject") then
+                lblFrame.BackgroundColor3 = COLORS.panelAlt or COLORS.panel
+                lblFrame.BackgroundTransparency = 0.12
+                lblFrame.BorderSizePixel = 0
+            end
+            if stroke and stroke:IsA("UIStroke") then
+                stroke.Color = COLORS.divider
+            end
+            if txtLabel and txtLabel:IsA("TextLabel") then
+                txtLabel.TextColor3 = COLORS.tabText or COLORS.white
+            end
+        end)
+        if lblFrame and lblFrame:IsA("GuiObject") and COLORS then
+            lblFrame.BackgroundColor3 = COLORS.panelAlt or COLORS.panel
+            lblFrame.BackgroundTransparency = 0.12
+        end
+        if stroke and stroke:IsA("UIStroke") and COLORS then
+            stroke.Color = COLORS.divider
+        end
+        if txtLabel and txtLabel:IsA("TextLabel") and COLORS then
+            txtLabel.TextColor3 = COLORS.tabText or COLORS.white
+        end
+    end
+
+    function TopLabelManager.New(text, opts)
+        opts = opts or {}
+        local frame = Instance.new("Frame")
+        frame.LayoutOrder = (#TopLabelManager._labels) + 1
+        frame.BackgroundTransparency = 0
+        frame.Size = UDim2.new(0, opts.MinWidth or 260, 0, 0)
+        frame.AutomaticSize = Enum.AutomaticSize.Y
+
+        local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0, 8); corner.Parent = frame
+        local stroke = Instance.new("UIStroke") stroke.Thickness = 1; stroke.Color = COLORS.divider; stroke.Parent = frame
+
+        local padding = Instance.new("UIPadding")
+        padding.PaddingLeft = UDim.new(0, 10)
+        padding.PaddingRight = UDim.new(0, 10)
+        padding.PaddingTop = UDim.new(0, 6)
+        padding.PaddingBottom = UDim.new(0, 6)
+        padding.Parent = frame
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, 0, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = tostring(text or "")
+        label.TextWrapped = true
+        label.RichText = false
+        label.AutomaticSize = Enum.AutomaticSize.Y
+        label.Font = opts.Font or Enum.Font.GothamSemibold
+        label.TextSize = opts.TextSize or 16
+        label.TextXAlignment = Enum.TextXAlignment.Center
+        label.TextYAlignment = Enum.TextYAlignment.Center
+        label.Parent = frame
+
+        frame.Parent = container
+
+        applyTheme(frame, label, stroke)
+
+        local api = {}
+        function api.SetText(t)
+            label.Text = tostring(t or "")
+        end
+        function api.SetColor3(c)
+            if frame and frame:IsA("GuiObject") then frame.BackgroundColor3 = c end
+        end
+        function api.Destroy()
+            for i,v in ipairs(TopLabelManager._labels) do if v == api then table.remove(TopLabelManager._labels, i); break end end
+            if frame then frame:Destroy() end
+        end
+
+        table.insert(TopLabelManager._labels, api)
+
+        while #TopLabelManager._labels > TopLabelManager._max do
+            local old = table.remove(TopLabelManager._labels, 1)
+            if old and old.Destroy then pcall(old.Destroy) end
+        end
+
+        return api
+    end
+
+    _G.RivalsTopLabel = TopLabelManager
+end
 
 
 --------------------------------------------------------------------------
@@ -2456,6 +2755,10 @@ local function GetConfig(key, default)
     if Config[key] == nil then return default end
     return Config[key]
 end
+
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
 
 local function BindToggleToConfig(toggleFrame, key, default)
     if not toggleFrame then return end
@@ -2698,8 +3001,9 @@ end
 -- ** Build UI
 local root = Instance.new("Frame")
 local bannerHeight = 28
-root.Size = UDim2.new(0, 760, 0, 520 + bannerHeight)
-root.Position = UDim2.new(0.5, -380, 0.5, -260 - (bannerHeight/2))
+local TOPBAR_SPACING = 17
+root.Size = UDim2.new(0, 760, 0, 520 + bannerHeight + TOPBAR_SPACING)
+root.Position = UDim2.new(0.5, -380, 0.5, -260 - (bannerHeight/2) - (TOPBAR_SPACING/2))
 root.AnchorPoint = Vector2.new(0.0,0.0)
 root.BackgroundColor3 = COLORS.bg
 root.Parent = gui
@@ -2708,8 +3012,8 @@ local rootCorner = Instance.new("UICorner") rootCorner.Parent = root
 RegisterThemed(root)
 
     local tabsBar = Instance.new("Frame")
-    tabsBar.Size = UDim2.new(0, 160, 1, -bannerHeight)
-    tabsBar.Position = UDim2.new(0, 0, 0, bannerHeight)
+    tabsBar.Size = UDim2.new(0, 160, 1, -(bannerHeight + TOPBAR_SPACING))
+    tabsBar.Position = UDim2.new(0, 0, 0, bannerHeight + TOPBAR_SPACING)
     tabsBar.BackgroundColor3 = COLORS.panel
 tabsBar.Parent = root
 local tabsBarCorner = Instance.new("UICorner") tabsBarCorner.CornerRadius = UDim.new(0, 6) tabsBarCorner.Parent = tabsBar
@@ -2761,8 +3065,8 @@ end
 
 local pages = Instance.new("ScrollingFrame")
 pages.Name = "Pages"
-    pages.Size = UDim2.new(1, -160, 1, -bannerHeight)
-    pages.Position = UDim2.new(0, 160, 0, bannerHeight)
+    pages.Size = UDim2.new(1, -160, 1, -(bannerHeight + TOPBAR_SPACING))
+    pages.Position = UDim2.new(0, 160, 0, bannerHeight + math.floor(TOPBAR_SPACING/3))
 pages.BackgroundTransparency = 1
 pages.ScrollBarThickness = 10
 pages.AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -2787,10 +3091,45 @@ banner.ZIndex = 60
 banner.Parent = root
 RegisterThemed(banner)
 
+-------------------------------------------------------------
+
+local topDivider = Instance.new("Frame")
+topDivider.Name = "TopDivider"
+topDivider.Size = UDim2.new(1, 0, 0, 1)
+topDivider.Position = UDim2.new(0, 0, 0, bannerHeight + math.floor(TOPBAR_SPACING / 2))
+topDivider.AnchorPoint = Vector2.new(0, 0)
+topDivider.BackgroundColor3 = COLORS.divider or (COLORS.panel or COLORS.bg)
+topDivider.BorderSizePixel = 0
+topDivider.ZIndex = banner.ZIndex - 1
+topDivider.Parent = root
+RegisterThemed(topDivider, function()
+    pcall(function() topDivider.BackgroundColor3 = COLORS.divider or (COLORS.panel or COLORS.bg) end)
+end)
+
+-------------------------------------------------------------
+
+local helpBtn = Instance.new("TextButton")
+helpBtn.Name = "HelpButton"
+helpBtn.Size = UDim2.new(0, 72, 0, 28)
+helpBtn.AnchorPoint = Vector2.new(0, 0)
+helpBtn.Position = UDim2.new(0, 4, 0, 6)  
+helpBtn.BackgroundColor3 = COLORS.panel
+helpBtn.TextColor3 = COLORS.text
+helpBtn.Font = Enum.Font.GothamBold
+helpBtn.TextSize = 14
+helpBtn.Text = "Help"
+helpBtn.AutoButtonColor = false
+helpBtn.ZIndex = banner.ZIndex + 1
+local hbCorner = Instance.new("UICorner") hbCorner.CornerRadius = UDim.new(0,6) hbCorner.Parent = helpBtn
+helpBtn.Parent = root
+RegisterThemed(helpBtn)
+
+-------------------------------------------------------------
+
     local tabsUnderlay = Instance.new("Frame")
     tabsUnderlay.Name = "TabsUnderlay"
-    tabsUnderlay.Size = UDim2.new(0, 160, 1, -bannerHeight)
-    tabsUnderlay.Position = UDim2.new(0, 0, 0, bannerHeight)
+    tabsUnderlay.Size = UDim2.new(0, 160, 1, -(bannerHeight + TOPBAR_SPACING))
+    tabsUnderlay.Position = UDim2.new(0, 0, 0, bannerHeight + TOPBAR_SPACING)
     tabsUnderlay.BackgroundColor3 = COLORS.panel
 tabsUnderlay.Parent = root
 local tabsUnderCorner = Instance.new("UICorner") tabsUnderCorner.CornerRadius = UDim.new(0,4) tabsUnderCorner.Parent = tabsUnderlay
@@ -3148,7 +3487,7 @@ local playerStuffGroup = makeCollapsibleGroup(visualTab.LeftCol, "Player Visuals
 end)
 
 local hideSmokeToggle = makeToggle(visualTab.RightCol, "Hide Smoke", "Removes smoke visuals from your screen.")
--- local hideFlashbangToggle = makeToggle(visualTab.RightCol, "Hide Flashbang", "Removes flashbang visuals from your screen.")
+local hideFlashbangToggle = makeToggle(visualTab.RightCol, "Hide Flashbang", "Removes flashbang visuals from your screen.")
 
 local showEnemyWeaponsToggle = makeToggle(visualTab.RightCol, "Show Enemy Weapons", "Shows the weapons of enemies on your screen even.")
 
@@ -3164,7 +3503,7 @@ BindToggleToConfig(showEnemyWeaponsToggle, "visuals.showEnemyWeapons", false)
 BindColorPickerToConfig(playerChamsColorPicker, "visuals.playerChamsColor", initColor)
 BindColorPickerToConfig(espBoxesColorPicker, "visuals.espBoxesColor", initColor)
 BindToggleToConfig(hideSmokeToggle, "visuals.hideSmoke", false)
--- BindToggleToConfig(hideFlashbangToggle, "visuals.hideFlashbang", false)
+BindToggleToConfig(hideFlashbangToggle, "visuals.hideFlashbang", false)
 
 
 ---------------------------------------------------------------------------
@@ -3254,7 +3593,7 @@ local noclipGroup = makeCollapsibleGroup(rageTab.LeftCol, "Noclip Stuff", false,
 end)
 
 local stickToToggle, stickToKeybind, useStickSmoothingToggle, smoothStickingSlider
-local stickGroup = makeCollapsibleGroup(rageTab.LeftCol, "Stick to Players", false, function(parent)
+local stickGroup = makeCollapsibleGroup(rageTab.RightCol, "Stick to Players", false, function(parent)
     stickToToggle = makeToggle(parent, "Stick to Target", "Makes you stick to the nearest target behind them")
     stickToKeybind = makeKeyBindButton(parent, "Stick to Target Keybind", Enum.KeyCode.I)
     useStickSmoothingToggle = makeToggle(parent, "Use Smooth Sticking", "Smoothly moves you towards the target instead of teleporting.")
@@ -3640,6 +3979,85 @@ Spray = {
 --------------------------------------------------------------------------
 
 -- ** Code Starts Here ** --
+
+-- ** Team Check API Logic Starts Here **
+-- ** Team check api ** --
+local teammateCache = {}
+_G.RivalsCHT_TeamCheck = _G.RivalsCHT_TeamCheck or {}
+do
+    local teamApi = _G.RivalsCHT_TeamCheck
+    teamApi.GetCache = function() return teammateCache end
+
+    local function resolvePlayer(playerOrName)
+        if not playerOrName then return nil end
+        local Players = game:GetService("Players")
+        if type(playerOrName) == "string" then
+            return Players:FindFirstChild(playerOrName)
+        end
+        return playerOrName
+    end
+
+    teamApi.IsTeammate = function(playerOrName)
+        local pl = resolvePlayer(playerOrName)
+        if not pl then return false end
+        local entry = teammateCache[pl]
+        if entry and entry.isTeam ~= nil then return entry.isTeam end
+
+        local ok, isTeam = pcall(function()
+            local Players = game:GetService("Players")
+            local localTeam = Players.LocalPlayer and Players.LocalPlayer:GetAttribute("TeamID")
+            local teamId = pl:GetAttribute("TeamID")
+            if localTeam ~= nil and teamId ~= nil then
+                local res = (tostring(localTeam) == tostring(teamId))
+                teammateCache[pl] = { teamId = teamId, isTeam = res }
+                return res
+            end
+            if Players.LocalPlayer and Players.LocalPlayer.Team and pl.Team then
+                local res = (Players.LocalPlayer.Team == pl.Team)
+                teammateCache[pl] = { teamId = teamId, isTeam = res }
+                return res
+            end
+            teammateCache[pl] = { teamId = teamId, isTeam = false }
+            return false
+        end)
+        return ok and isTeam or false
+    end
+
+    teamApi.IsEnemy = function(playerOrName)
+        local pl = resolvePlayer(playerOrName)
+        if not pl then return false end
+        local ok, isTeam = pcall(teamApi.IsTeammate, pl)
+        if ok and type(isTeam) == "boolean" then return not isTeam end
+        local Players = game:GetService("Players")
+        local lp = Players.LocalPlayer
+        if lp and lp.Team and pl.Team then
+            return lp.Team ~= pl.Team
+        end
+        return false
+    end
+
+    teamApi.GetTeammates = function()
+        local Players = game:GetService("Players")
+        local t = {}
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if pl ~= Players.LocalPlayer and teamApi.IsTeammate(pl) then table.insert(t, pl) end
+        end
+        return t
+    end
+
+    teamApi.Invalidate = function(playerOrName)
+        if not playerOrName then
+            for k in pairs(teammateCache) do teammateCache[k] = nil end
+            return
+        end
+        local pl = resolvePlayer(playerOrName)
+        if pl then teammateCache[pl] = nil end
+    end
+end
+
+-- ** end of team check ** --
+
+-- ** Team Check API Logic Ends Here **
 
 -- ** Visual Tab Parts 
 
@@ -4199,29 +4617,19 @@ end
                     end
                 end
 
-                local keyConn
-                keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-                    if gameProcessed then return end
-                    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-                    local bound = GetConfig(KEY_CONFIG, "Insert")
-                    if not bound then return end
-                    local target = Enum.KeyCode[bound]
-                    if not target then return end
-                    if input.KeyCode == target then
+                if keyApi then
+                    keyApi.OnActivate = function()
+                        if keyApi.IsDisabled and keyApi.IsDisabled() then return end
                         pcall(function()
                             if root and root.Parent then
                                 root.Visible = not root.Visible
                             end
                         end)
                     end
-                end)
-
-                RegisterUnload(function()
-                    if keyConn and keyConn.Disconnect then
-                        pcall(function() keyConn:Disconnect() end)
-                        keyConn = nil
-                    end
-                end)
+                    RegisterUnload(function()
+                        if keyApi then keyApi.OnActivate = nil end
+                    end)
+                end
             end
 
 
@@ -4563,23 +4971,23 @@ do
         end
     end
 
-    local keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-        
-        local bound = GetConfig(KEY_CONFIG, "P")
-        local target = bound and Enum.KeyCode[bound]
-        if target and input.KeyCode == target then
+    if keyApi then
+        keyApi.OnActivate = function()
+            if keyApi.IsDisabled and keyApi.IsDisabled() then return end
             local tapi = ToggleAPI[playerHealthToggle]
             if tapi and tapi.Get and tapi.Set then
                 tapi.Set(not tapi.Get())
             end
         end
-    end)
-
-    RegisterUnload(function()
-        if keyConn then keyConn:Disconnect() end
-        disableHealth()
-    end)
+        RegisterUnload(function()
+            if keyApi then keyApi.OnActivate = nil end
+            disableHealth()
+        end)
+    else
+        RegisterUnload(function()
+            disableHealth()
+        end)
+    end
 end
 
 -- ** Player Health Logic Ends Here **
@@ -4600,7 +5008,7 @@ do
     local teamCheckEnabled = GetConfig("combat.teamCheck", true) or true
     local targetZone = GetConfig("combat.aimbotTargetZone", nil) or (initialZone or 1500)
     local useTargetZone = GetConfig("combat.aimbotTargetZoneEnabled", false) or false
-    local teammateCache = {}
+    teammateCache = teammateCache or {}
     local aimHistory = {} 
     local projSpeedLocal = (type(projSpeed) == "number" and projSpeed) or 900
     local leadScaleLocal = (type(leadScale) == "number" and leadScale) or 1
@@ -4615,80 +5023,7 @@ do
         end
     end
 
-    -- ** Team check api ** --
-    _G.RivalsCHT_TeamCheck = _G.RivalsCHT_TeamCheck or {}
-    do
-        local teamApi = _G.RivalsCHT_TeamCheck
-        teamApi.GetCache = function() return teammateCache end
-
-        local function resolvePlayer(playerOrName)
-            if not playerOrName then return nil end
-            local Players = game:GetService("Players")
-            if type(playerOrName) == "string" then
-                return Players:FindFirstChild(playerOrName)
-            end
-            return playerOrName
-        end
-
-        teamApi.IsTeammate = function(playerOrName)
-            local pl = resolvePlayer(playerOrName)
-            if not pl then return false end
-            local entry = teammateCache[pl]
-            if entry and entry.isTeam ~= nil then return entry.isTeam end
-
-            local ok, isTeam = pcall(function()
-                local Players = game:GetService("Players")
-                local localTeam = Players.LocalPlayer and Players.LocalPlayer:GetAttribute("TeamID")
-                local teamId = pl:GetAttribute("TeamID")
-                if localTeam ~= nil and teamId ~= nil then
-                    local res = (tostring(localTeam) == tostring(teamId))
-                    teammateCache[pl] = { teamId = teamId, isTeam = res }
-                    return res
-                end
-                if Players.LocalPlayer and Players.LocalPlayer.Team and pl.Team then
-                    local res = (Players.LocalPlayer.Team == pl.Team)
-                    teammateCache[pl] = { teamId = teamId, isTeam = res }
-                    return res
-                end
-                teammateCache[pl] = { teamId = teamId, isTeam = false }
-                return false
-            end)
-            return ok and isTeam or false
-        end
-
-        teamApi.IsEnemy = function(playerOrName)
-            local pl = resolvePlayer(playerOrName)
-            if not pl then return false end
-            local ok, isTeam = pcall(teamApi.IsTeammate, pl)
-            if ok and type(isTeam) == "boolean" then return not isTeam end
-            local Players = game:GetService("Players")
-            local lp = Players.LocalPlayer
-            if lp and lp.Team and pl.Team then
-                return lp.Team ~= pl.Team
-            end
-            return false
-        end
-
-        teamApi.GetTeammates = function()
-            local Players = game:GetService("Players")
-            local t = {}
-            for _, pl in ipairs(Players:GetPlayers()) do
-                if pl ~= Players.LocalPlayer and teamApi.IsTeammate(pl) then table.insert(t, pl) end
-            end
-            return t
-        end
-
-        teamApi.Invalidate = function(playerOrName)
-            if not playerOrName then
-                for k in pairs(teammateCache) do teammateCache[k] = nil end
-                return
-            end
-            local pl = resolvePlayer(playerOrName)
-            if pl then teammateCache[pl] = nil end
-        end
-    end
-
-    -- ** end of team check ** --
+    -- ** team check was moved from here btw
     do
         local Players = game:GetService("Players")
         local attrConns = {}
@@ -4734,6 +5069,14 @@ do
             if typeof(k) == "EnumItem" then name = k.Name elseif type(k) == "string" then name = tostring(k) end
             if name then SetConfig(KEY_CONFIG, name) end
         end
+
+        keyApi.OnActivate = function(k)
+            local t = ToggleAPI[aimbotToggle]
+            if t and t.Get and t.Set then t.Set(not t.Get()) end
+        end
+        RegisterUnload(function()
+            if keyApi then keyApi.OnActivate = nil end
+        end)
     end
 
     do
@@ -5237,13 +5580,7 @@ do
             startLoop()
         end
         if input.UserInputType == Enum.UserInputType.Keyboard then
-            local bound = GetConfig(KEY_CONFIG, "V")
-            if bound and Enum.KeyCode[bound] and input.KeyCode == Enum.KeyCode[bound] then
-                pcall(function()
-                    local t = ToggleAPI[aimbotToggle]
-                    if t and t.Get and t.Set then t.Set(not t.Get()) end
-                end)
-            end
+            -- handled by KeybindAPI OnActivate; no direct compare here
         end
     end)
 
@@ -5398,59 +5735,50 @@ end
 ---------------------------------------------------------------------------
 
 -- ** Aim Lock Keybind Logic Starts Here ** --
-
 do
     local KEY_CONFIG = "combat.aimLockKey"
-    local targetKey = Enum.KeyCode.Q
 
-    local function updateTargetKey()
+    local api = KeybindAPI[aimLockKeybind]
+    if api then
         local saved = GetConfig(KEY_CONFIG, "Q")
-        targetKey = (type(saved) == "string" and Enum.KeyCode[saved]) or Enum.KeyCode.Q
+        if type(saved) == "string" and Enum.KeyCode[saved] and api.Set then api.Set(Enum.KeyCode[saved]) end
+
+        api.OnBind = function(k)
+            local name = nil
+            if typeof(k) == "EnumItem" then name = k.Name elseif type(k) == "string" then name = tostring(k) end
+            if name then SetConfig(KEY_CONFIG, name) end
+        end
+
+        local releaseConn
+        api.OnActivate = function()
+            if api.IsDisabled and api.IsDisabled() then return end
+            if _G.RivalsCHT_Aimbot then
+                _G.RivalsCHT_Aimbot.ForceActive = true
+                _G.RivalsCHT_Aimbot.Start()
+            end
+            if releaseConn and releaseConn.Disconnect then releaseConn:Disconnect() end
+            releaseConn = UserInputService.InputEnded:Connect(function(input)
+                if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                local bound = api.Get and api.Get()
+                if bound and input.KeyCode == bound then
+                    if _G.RivalsCHT_Aimbot then _G.RivalsCHT_Aimbot.ForceActive = false end
+                    local leftHeld = false
+                    if UserInputService.IsMouseButtonPressed then
+                        leftHeld = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+                    end
+                    if not leftHeld then if _G.RivalsCHT_Aimbot then _G.RivalsCHT_Aimbot.Stop() end end
+                    if releaseConn and releaseConn.Disconnect then releaseConn:Disconnect() end
+                    releaseConn = nil
+                end
+            end)
+        end
+
+        RegisterUnload(function()
+            if releaseConn and releaseConn.Disconnect then releaseConn:Disconnect() end
+        end)
     end
 
-    updateTargetKey()
-
-    -- Watch for keybind changes from UI
-    pcall(function()
-        local api = KeybindAPI[aimLockKeybind]
-        if api then
-            local prevOnBind = api.OnBind
-            api.OnBind = function(k)
-                if prevOnBind then prevOnBind(k) end
-                updateTargetKey()
-            end
-        end
-    end)
-
-    local aimLockDown = false
-    local kbBegan, kbEnded
-
-    kbBegan = UserInputService.InputBegan:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-        if input.KeyCode == targetKey then
-            aimLockDown = true
-            if _G.RivalsCHT_Aimbot then _G.RivalsCHT_Aimbot.ForceActive = true; _G.RivalsCHT_Aimbot.Start() end
-        end
-    end)
-
-    kbEnded = UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-        if input.KeyCode == targetKey then
-            aimLockDown = false
-            if _G.RivalsCHT_Aimbot then _G.RivalsCHT_Aimbot.ForceActive = false end
-            local leftHeld = false
-            pcall(function() leftHeld = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) end)
-            if not leftHeld then if _G.RivalsCHT_Aimbot then _G.RivalsCHT_Aimbot.Stop() end end
-        end
-    end)
-
-    RegisterUnload(function()
-        if kbBegan and kbBegan.Disconnect then pcall(function() kbBegan:Disconnect() end) end
-        if kbEnded and kbEnded.Disconnect then pcall(function() kbEnded:Disconnect() end) end
-    end)
-
 end
-
 -- ** Aim Lock Keybind Logic Ends Here ** --
 
 ---------------------------------------------------------------------------
@@ -5882,49 +6210,44 @@ end
 
 do
     local api = (_G and _G.RivalsCHTUI and _G.RivalsCHTUI.ShowEnemyWeapons) or nil
-    local katanaDraw = nil
     local katanaConn = nil
     local katanaExpiry = 0
     local KATANA_DIST = 150
     local KATANA_TIME = 1.4
 
+    local katanaLabelApi = nil
+
     local function removeKatanaDraw()
-        if katanaDraw and katanaDraw.Remove then
-            pcall(function() katanaDraw:Remove() end)
+        if katanaLabelApi and type(katanaLabelApi.Destroy) == "function" then
+            katanaLabelApi:Destroy()
+            katanaLabelApi = nil
         end
-        katanaDraw = nil
     end
 
     local function showKatanaMessage()
-        if typeof(Drawing) ~= "table" or not Drawing.new then return end
-        if not katanaDraw then
-            katanaDraw = Drawing.new("Text")
-            katanaDraw.Text = "Enemy is holding Katana!"
-            katanaDraw.Color = (COLORS and COLORS.accent) or Color3.fromRGB(255,80,80)
-            katanaDraw.Size = 25
-            katanaDraw.Center = true
-            katanaDraw.Outline = true
-            local cam = Workspace.CurrentCamera
-            if cam then
-                local vs = cam.ViewportSize
-                katanaDraw.Position = Vector2.new(vs.X * 0.5, 48)
+        if type(_G) == "table" and _G.RivalsTopLabel and type(_G.RivalsTopLabel.New) == "function" then
+            if not katanaLabelApi then
+                katanaLabelApi = _G.RivalsTopLabel.New("Enemy is holding Katana!", {TextSize = 18})
+                if katanaLabelApi.SetColor3 and COLORS and COLORS.accent then
+                    katanaLabelApi:SetColor3(COLORS.accent)
+                end
             else
-                katanaDraw.Position = Vector2.new(400, 48)
+                if katanaLabelApi.SetText then katanaLabelApi:SetText("Enemy is holding Katana!") end
             end
+            katanaExpiry = tick() + KATANA_TIME
         end
-        katanaDraw.Visible = true
-        katanaExpiry = tick() + KATANA_TIME
     end
 
     local function checkAndHideKatana()
-        if katanaDraw and tick() > katanaExpiry then
-            pcall(function() katanaDraw.Visible = false end)
+        if katanaLabelApi and tick() > katanaExpiry then
+            katanaLabelApi:Destroy()
+            katanaLabelApi = nil
         end
     end
 
     local function detectKatana()
         if not GetConfig("combat.sixthSense", false) then
-            if katanaDraw then pcall(function() katanaDraw.Visible = false end) end
+            removeKatanaDraw()
             return
         end
 
@@ -6297,15 +6620,31 @@ do
     do
         local keyApi = KeybindAPI[enableAutoShootKeybind]
         local saved = GetConfig(KEY_CONFIG, "Y")
-        pcall(function()
-            if keyApi and type(saved) == "string" and Enum.KeyCode[saved] then keyApi.Set(Enum.KeyCode[saved]) end
-        end)
+        if keyApi and type(saved) == "string" and Enum.KeyCode[saved] then keyApi.Set(Enum.KeyCode[saved]) end
         if keyApi then
             keyApi.OnBind = function(k)
                 local name = nil
                 if typeof(k) == "EnumItem" then name = k.Name elseif type(k) == "string" then name = tostring(k) end
                 if name then SetConfig(KEY_CONFIG, name) end
             end
+            keyApi.OnActivate = function()
+                if keyApi.IsDisabled and keyApi.IsDisabled() then return end
+                local now = tick()
+                local last = keyApi._lastToggleTime or 0
+                if now - last < 0.15 then return end
+                keyApi._lastToggleTime = now
+                local tApi = ToggleAPI[autoShootToggle]
+                local cur = (tApi and tApi.Get and tApi.Get()) or GetConfig("combat.autoShoot", false)
+                local newState = not cur
+                if tApi and tApi.Set then
+                    tApi.Set(newState)
+                else
+                    SetConfig("combat.autoShoot", newState)
+                end
+            end
+            RegisterUnload(function()
+                if keyApi then keyApi.OnActivate = nil end
+            end)
         end
     end
 
@@ -6663,7 +7002,7 @@ do
         if debugLabel and debugMsg ~= lastDebugMsg then debugLabel.Set(debugMsg) lastDebugMsg = debugMsg end
     end
 
-    pcall(function()
+    if not (KeybindAPI and KeybindAPI[enableAutoShootKeybind] and type(KeybindAPI[enableAutoShootKeybind].OnActivate) == "function") then
         keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
             if gameProcessed then return end
             if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
@@ -6672,12 +7011,12 @@ do
             if target and input.KeyCode == target then
                 local currentState = GetConfig("combat.autoShoot", false)
                 local newState = not currentState
-                SetConfig("combat.autoShoot", newState)
+                if type(SetConfig) == "function" then SetConfig("combat.autoShoot", newState) end
                 local api = ToggleAPI[autoShootToggle]
                 if api and api.Set then api.Set(newState) end
             end
         end)
-    end)
+    end
 
     local api = ToggleAPI[autoShootToggle]
     if api then
@@ -6725,7 +7064,6 @@ do
     local noclipEnabled = false
     local player = Players.LocalPlayer
     local currentKeybind = Enum.KeyCode.N
-    local keybindConn = nil
     local toggleApi = ToggleAPI[noclipToggle]
     local originalCollisionStates = {}
     local charAddedConn = nil
@@ -6795,33 +7133,28 @@ do
         toggleApi.OnToggle = function(state) setNoclip(state) end
     end
 
-    local function setupKeybindListener()
-        if keybindConn then keybindConn:Disconnect() end
-        keybindConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-            if gameProcessed then return end
-            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-
-            local api = KeybindAPI[noclipKeybind]
-            local bound = nil
-            if api and api.Get and api.Get() then
-                bound = api.Get()
-            else
-                local saved = GetConfig("rage.noclipKeybind", nil)
-                if type(saved) == "string" and Enum.KeyCode[saved] then bound = Enum.KeyCode[saved] end
+    do
+        local keyApi = KeybindAPI[noclipKeybind]
+        local saved = GetConfig("rage.noclipKeybind", "N")
+        if keyApi and type(saved) == "string" and Enum.KeyCode[saved] and keyApi.Set then keyApi.Set(Enum.KeyCode[saved]) end
+        if keyApi then
+            keyApi.OnBind = function(k)
+                local name = nil
+                if typeof(k) == "EnumItem" then name = k.Name elseif type(k) == "string" then name = tostring(k) end
+                if name then SetConfig("rage.noclipKeybind", name) end
             end
-
-            if bound and input.KeyCode == bound then
+            keyApi.OnActivate = function()
+                if keyApi.IsDisabled and keyApi.IsDisabled() then return end
                 local currentState = GetConfig("rage.noclip", false)
                 local newState = not currentState
                 SetConfig("rage.noclip", newState)
                 if toggleApi and toggleApi.Set then toggleApi.Set(newState) end
             end
-        end)
+            RegisterUnload(function()
+                if keyApi then keyApi.OnActivate = nil end
+            end)
+        end
     end
-
-    BindKeybindToConfig(noclipKeybind, "rage.noclipKeybind", Enum.KeyCode.N)
-
-    setupKeybindListener()
 
     local function onCharacterAdded(char)
         originalCollisionStates = {}
@@ -6853,7 +7186,6 @@ do
 
     RegisterUnload(function()
         setNoclip(false)
-        if keybindConn then keybindConn:Disconnect() end
         if charAddedConn then charAddedConn:Disconnect() end
         if noclipLoopConn then noclipLoopConn:Disconnect() end
     end)
@@ -6874,7 +7206,7 @@ do
     local LocalPlayer = Players.LocalPlayer
     local stickEnabled = false
     local stickConn = nil
-    local keybindConn = nil
+    
     local stickTarget = nil
     local respawnConns = {}
     local respawnWatcherActive = false
@@ -7117,33 +7449,31 @@ do
     end
 
     do
-        if keybindConn and keybindConn.Disconnect then keybindConn:Disconnect() end
-        keybindConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-            if gameProcessed then return end
-            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-
-            local api = KeybindAPI and KeybindAPI[stickToKeybind]
-            local bound = nil
-            if api and api.Get and api.Get() then
-                bound = api.Get()
-            else
-                local saved = GetConfig("rage.stickToTargetKeybind", nil)
-                if type(saved) == "string" and Enum.KeyCode[saved] then bound = Enum.KeyCode[saved] end
+        local keyApi = KeybindAPI and KeybindAPI[stickToKeybind]
+        local saved = GetConfig("rage.stickToTargetKeybind", "I")
+        if keyApi and type(saved) == "string" and Enum.KeyCode[saved] and keyApi.Set then keyApi.Set(Enum.KeyCode[saved]) end
+        if keyApi then
+            keyApi.OnBind = function(k)
+                local name = nil
+                if typeof(k) == "EnumItem" then name = k.Name elseif type(k) == "string" then name = tostring(k) end
+                if name then SetConfig("rage.stickToTargetKeybind", name) end
             end
-
-            if bound and input.KeyCode == bound then
+            keyApi.OnActivate = function()
+                if keyApi.IsDisabled and keyApi.IsDisabled() then return end
                 local current = GetConfig("rage.stickToTarget", false)
                 local newState = not current
                 SetConfig("rage.stickToTarget", newState)
                 local api = ToggleAPI and ToggleAPI[stickToToggle]
                 if api and api.Set then api.Set(newState) end
             end
-        end)
+            RegisterUnload(function()
+                if keyApi then keyApi.OnActivate = nil end
+            end)
+        end
     end
 
     RegisterUnload(function()
         stopStick()
-        if keybindConn and keybindConn.Disconnect then keybindConn:Disconnect() end
     end)
 end
 
@@ -7422,26 +7752,30 @@ do
 
     pcall(function() flyDebugLabel = makeDebugLabel("Fly: OFF") end)
 
-    local flyKeyConn = nil
-    flyKeyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-        local bound = GetConfig and GetConfig("rage.flyKeybind", "N")
-        local target = nil
-        if type(bound) == "string" and Enum.KeyCode[bound] then
-            target = Enum.KeyCode[bound]
-        elseif typeof and typeof(bound) == "EnumItem" then
-            target = bound
+    do
+        local keyApi = KeybindAPI and KeybindAPI[flyKeybind]
+        local saved = GetConfig and GetConfig("rage.flyKeybind", "N")
+        if keyApi and type(saved) == "string" and Enum.KeyCode[saved] and keyApi.Set then keyApi.Set(Enum.KeyCode[saved]) end
+        if keyApi then
+            keyApi.OnBind = function(k)
+                local name = nil
+                if typeof(k) == "EnumItem" then name = k.Name elseif type(k) == "string" then name = tostring(k) end
+                if name then SetConfig("rage.flyKeybind", name) end
+            end
+            keyApi.OnActivate = function()
+                if keyApi.IsDisabled and keyApi.IsDisabled() then return end
+                local currentState = GetConfig and GetConfig("rage.fly", false)
+                local newState = not currentState
+                if SetConfig then SetConfig("rage.fly", newState) end
+                local api = ToggleAPI and ToggleAPI[flyToggle]
+                if api and api.Set then api.Set(newState) end
+                if flyDebugLabel and flyDebugLabel.Set then flyDebugLabel.Set("Fly: " .. (newState and "ON (keybind)" or "OFF (keybind)")) end
+            end
+            RegisterUnload(function()
+                if keyApi then keyApi.OnActivate = nil end
+            end)
         end
-        if target and input.KeyCode == target then
-            local currentState = GetConfig and GetConfig("rage.fly", false)
-            local newState = not currentState
-            if SetConfig then SetConfig("rage.fly", newState) end
-            local api = ToggleAPI and ToggleAPI[flyToggle]
-            if api and api.Set then api.Set(newState) end
-            if flyDebugLabel and flyDebugLabel.Set then flyDebugLabel.Set("Fly: " .. (newState and "ON (keybind)" or "OFF (keybind)")) end
-        end
-    end)
+    end
 
     if not inputBeganConn then
         inputBeganConn = UserInputService.InputBegan:Connect(onInputBegan)
@@ -7459,7 +7793,7 @@ do
         stopFly()
         if inputBeganConn then inputBeganConn:Disconnect(); inputBeganConn = nil end
         if inputEndedConn then inputEndedConn:Disconnect(); inputEndedConn = nil end
-        if flyKeyConn then flyKeyConn:Disconnect(); flyKeyConn = nil end
+        
         if flyDebugLabel then pcall(function()
             if flyDebugLabel.Destroy then flyDebugLabel.Destroy() elseif flyDebugLabel.Set then flyDebugLabel.Set("") end
         end) end
@@ -8263,33 +8597,59 @@ end
 
 -- ** Hide Flashbang Visuals Logic Starts Here ** --
 
---[[
-dont uncomment it lol
-i thought its gonna be like the smoke thingy but its not
-TO DO: FIX THIS LATER
-]]
 
---[[ do
-    local _hideFlashRunning = false
-    local _worker = nil
+do
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    local playerGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+    local enabled = true
+    local wsConn, guiConn
 
-    local function startHideFlash()
-        if _hideFlashRunning then return end
-        _hideFlashRunning = true
-        _worker = task.spawn(function()
-            while _hideFlashRunning do
-                local obj = workspace:FindFirstChild("FlashbangEffect")
-                if obj then
-                    if obj.Destroy then obj:Destroy() end
-                end
-                task.wait(0.1)
-            end
-        end)
+    local function destroySafely(obj)
+        if not obj then return end
+        if type(obj.Destroy) == "function" then
+            pcall(obj.Destroy, obj)
+        end
     end
 
-    local function stopHideFlash()
-        _hideFlashRunning = false
-        _worker = nil
+    local function showFlashLabel()
+        if type(_G) == "table" and _G.RivalsTopLabel and type(_G.RivalsTopLabel.New) == "function" then
+            local lbl = _G.RivalsTopLabel.New("You are flashbanged currently", {TextSize = 14})
+            task.delay(3.5, function()
+                if lbl and lbl.Destroy then lbl:Destroy() end
+            end)
+        end
+    end
+
+    local function startRemover()
+        if wsConn then return end
+        wsConn = workspace.ChildAdded:Connect(function(child)
+            if enabled and child and child.Name == "FlashbangEffect" then
+                destroySafely(child)
+                showFlashLabel()
+            end
+        end)
+        if playerGui then
+            guiConn = playerGui.ChildAdded:Connect(function(child)
+                if enabled and child and tostring(child.Name):lower():find("flash") then
+                    destroySafely(child)
+                    showFlashLabel()
+                end
+            end)
+        end
+        for _, v in ipairs(workspace:GetChildren()) do
+            if v.Name == "FlashbangEffect" then destroySafely(v) showFlashLabel() end
+        end
+        if playerGui then
+            for _, v in ipairs(playerGui:GetChildren()) do
+                if tostring(v.Name):lower():find("flash") then destroySafely(v) end
+            end
+        end
+    end
+
+    local function stopRemover()
+        if wsConn then wsConn:Disconnect() wsConn = nil end
+        if guiConn then guiConn:Disconnect() guiConn = nil end
     end
 
     local tApi = (ToggleAPI and ToggleAPI[hideFlashbangToggle]) or nil
@@ -8297,20 +8657,205 @@ TO DO: FIX THIS LATER
         local prev = tApi.OnToggle
         tApi.OnToggle = function(state)
             if type(prev) == "function" then pcall(prev, state) end
-            if state then startHideFlash() else stopHideFlash() end
+            enabled = not not state
+            if enabled then startRemover() else stopRemover() end
         end
-        if tApi.Get and tApi.Get() then startHideFlash() end
+        if tApi.Get and tApi.Get() then enabled = true startRemover() end
     else
-        if GetConfig and GetConfig("visuals.hideFlashbang", false) then startHideFlash() end
+        if GetConfig and GetConfig("visuals.hideFlashbang", false) then enabled = true startRemover() end
     end
 
     RegisterUnload(function()
-        _hideFlashRunning = false
+        stopRemover()
     end)
-end ]]
+end
 
 
 -- ** Hide Flashbang Visuals Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Help Button Logic Starts here ** -- 
+
+local _helpPanel = nil
+local function CloseHelpPanel()
+    if _helpPanel and _helpPanel.Destroy then
+        pcall(function() _helpPanel:Destroy() end)
+    end
+    _helpPanel = nil
+end
+
+local function OpenHelpPanel()
+    if _helpPanel and _helpPanel.Parent then
+        return
+    end
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "Rivals_HelpPanel"
+    screenGui.ResetOnSpawn = false
+    screenGui.DisplayOrder = 10001
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    if gui and gui.Parent then
+        screenGui.Parent = gui.Parent
+    else
+        screenGui.Parent = game:GetService("CoreGui")
+    end
+
+    local overlay = Instance.new("Frame")
+    overlay.Name = "Overlay"
+    overlay.AnchorPoint = Vector2.new(0,0)
+    overlay.Size = UDim2.new(1,0,1,0)
+    overlay.Position = UDim2.new(0,0,0,0)
+    overlay.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    overlay.BackgroundTransparency = 0.45
+    overlay.ZIndex = 1
+    overlay.Parent = screenGui
+
+    local dialog = Instance.new("Frame")
+    dialog.Name = "HelpDialog"
+    dialog.Size = UDim2.new(0, 700, 0, 420)
+    dialog.Position = UDim2.new(0.5, -350, 0.5, -210)
+    dialog.AnchorPoint = Vector2.new(0,0)
+    dialog.BackgroundColor3 = COLORS.panel or Color3.fromRGB(24,24,24)
+    dialog.BorderSizePixel = 0
+    dialog.ZIndex = 2
+    dialog.Parent = screenGui
+    local dlgCorner = Instance.new("UICorner") dlgCorner.CornerRadius = UDim.new(0,12) dlgCorner.Parent = dialog
+    local dlgStroke = Instance.new("UIStroke") dlgStroke.Thickness = 1 dlgStroke.Parent = dialog
+    RegisterThemed(dialog, function()
+        pcall(function()
+            dialog.BackgroundColor3 = COLORS.panel or dialog.BackgroundColor3
+            dlgStroke.Color = COLORS.divider or dlgStroke.Color
+        end)
+    end)
+
+    local header = Instance.new("Frame") header.Name = "Header" header.Size = UDim2.new(1,0,0,60) header.Position = UDim2.new(0,0,0,0) header.Parent = dialog
+    local headerCorner = Instance.new("UICorner") headerCorner.CornerRadius = UDim.new(0,10) headerCorner.Parent = header
+    if COLORS and COLORS.accent then header.BackgroundColor3 = COLORS.accent end
+    RegisterThemed(header)
+
+    local title = Instance.new("TextLabel")
+    title.Name = "Title"
+    title.Size = UDim2.new(1, -96, 1, 0)
+    title.Position = UDim2.new(0, 24, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 20
+    title.Text = "How to use Your Desire"
+    title.TextColor3 = COLORS.white or Color3.fromRGB(240,240,240)
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = header
+    if COLORS and COLORS.white then title.TextColor3 = COLORS.white end
+    RegisterThemed(title)
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Name = "CloseBtn"
+    closeBtn.Size = UDim2.new(0,36,0,36)
+    closeBtn.Position = UDim2.new(1, -44, 0.5, 0)
+    closeBtn.AnchorPoint = Vector2.new(0,0.5)
+    closeBtn.BackgroundColor3 = COLORS.panelDark or Color3.fromRGB(40,40,40)
+    closeBtn.Text = "X"
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 18
+    closeBtn.TextColor3 = COLORS.text or Color3.fromRGB(230,230,230)
+    closeBtn.Parent = header
+    local closeCorner = Instance.new("UICorner") closeCorner.CornerRadius = UDim.new(0,8) closeCorner.Parent = closeBtn
+    RegisterThemed(closeBtn, function() pcall(function() closeBtn.BackgroundColor3 = COLORS.panelDark; closeBtn.TextColor3 = COLORS.text end) end)
+    closeBtn.MouseButton1Click:Connect(function() CloseHelpPanel() end)
+
+    local content = Instance.new("ScrollingFrame")
+    content.Name = "Content"
+    content.Size = UDim2.new(1, -48, 1, -80)
+    content.Position = UDim2.new(0, 24, 0, 64)
+    content.BackgroundTransparency = 1
+    content.ScrollBarThickness = 8
+    content.Parent = dialog
+    local pad = Instance.new("UIPadding") pad.PaddingLeft = UDim.new(0,6) pad.PaddingRight = UDim.new(0,6) pad.PaddingTop = UDim.new(0,6) pad.PaddingBottom = UDim.new(0,6) pad.Parent = content
+
+    local list = Instance.new("UIListLayout") list.Parent = content list.SortOrder = Enum.SortOrder.LayoutOrder list.Padding = UDim.new(0,8)
+
+    local function addSection(titleText, bodyText)
+        local holder = Instance.new("Frame") holder.Size = UDim2.new(1,0,0,0) holder.AutomaticSize = Enum.AutomaticSize.Y holder.BackgroundTransparency = 1 holder.Parent = content
+        local h = Instance.new("TextLabel") h.Size = UDim2.new(1,0,0,22) h.BackgroundTransparency = 1 h.Font = Enum.Font.GothamBold h.TextSize = 16 h.Text = titleText h.TextColor3 = COLORS.text h.TextXAlignment = Enum.TextXAlignment.Left h.Parent = holder
+        local b = Instance.new("TextLabel") b.Size = UDim2.new(1,-12,0,0) b.Position = UDim2.new(0,6,0,26) b.AutomaticSize = Enum.AutomaticSize.Y b.BackgroundTransparency = 1 b.Font = Enum.Font.Gotham b.TextSize = 14 b.TextWrapped = true b.Text = bodyText b.TextColor3 = COLORS.textDim b.TextXAlignment = Enum.TextXAlignment.Left b.Parent = holder
+    end
+
+    addSection("Keybinds and Customization", "You can customize keybinds by pressing on them and setting them to a custom key (remember to press enter to save). You can also disable keybinds and re-enable them back by right clicking on them and pressing the button.")
+    addSection("Visuals", "You can customize the visuals of the game in the customization tab. You can change model colors, lightning intensity, spoof your device and even change the theme of the UI")
+    addSection("Combat", "You can customize your combat settings in the combat tab. Aimbot, autoshoot and many other features are in there.")
+    addSection("Rage", "You can find cool stuff like fly, noclip and my favourite stick to player in there, be careful how you use them tho.")
+    addSection("Tips", "If you dont know what a toggle does hover over it for a bit, its gonna show you a tool tip. If your aimbot breaks when youre very far away from a player turn on target behind wals btw.")
+
+    list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        content.CanvasSize = UDim2.new(0,0,0, list.AbsoluteContentSize.Y + 12)
+    end)
+
+    _helpPanel = screenGui
+    RegisterThemed(_helpPanel, function() end)
+    RegisterUnload(function() CloseHelpPanel() end)
+end
+
+if helpBtn and helpBtn.MouseButton1Click then
+    helpBtn.MouseButton1Click:Connect(function()
+        OpenHelpPanel()
+    end)
+end
+
+-- ** Help Button Logic Ends here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Persist Disabled/Enabled Keybind Logic Starts Here ** --
+
+do
+    local function _countKeys(t)
+        local c = 0
+        if type(t) ~= "table" then return 0 end
+        for _ in pairs(t) do c = c + 1 end
+        return c
+    end
+    KeybindConfigIds = KeybindConfigIds or {}
+    DisabledKeybinds = DisabledKeybinds or {}
+    PendingKeybindSaves = PendingKeybindSaves or {}
+
+    local function _sanitizeId(s)
+        return tostring(s or ""):gsub("%s+","_"):gsub("[^%w_%-]", ""):lower()
+    end
+
+    local processed = 0
+    for f, api in pairs(KeybindAPI or {}) do
+        if (type(f) == "table" or typeof(f) == "Instance") and type(api) == "table" then
+            local frameKey = f
+            local apiLocal = api
+            KeybindConfigIds[frameKey] = KeybindConfigIds[frameKey] or ("ui.keybinds.disabled." .. _sanitizeId(frameKey.Name or tostring(frameKey)))
+            if type(apiLocal.IsDisabled) ~= "function" then
+                apiLocal.IsDisabled = function() return DisabledKeybinds[frameKey] == true end
+            end
+            if type(apiLocal.SetDisabled) ~= "function" then
+                apiLocal.SetDisabled = function(b)
+                    DisabledKeybinds[frameKey] = not not b
+                    if type(apiLocal.SetDisabledAppearance) == "function" then apiLocal.SetDisabledAppearance(DisabledKeybinds[frameKey]) end
+                    if type(SetConfig) == "function" then
+                        SetConfig(KeybindConfigIds[frameKey], DisabledKeybinds[frameKey])
+                    end
+                    if type(apiLocal.Refresh) == "function" then apiLocal.Refresh() end
+                end
+            end
+            if type(apiLocal.ToggleDisabled) ~= "function" then
+                apiLocal.ToggleDisabled = function() apiLocal.SetDisabled(not apiLocal.IsDisabled()) end
+            end
+            if type(GetConfig) == "function" then
+                local v = GetConfig(KeybindConfigIds[frameKey], DisabledKeybinds[frameKey])
+                DisabledKeybinds[frameKey] = not not v
+            end
+            if type(apiLocal.SetDisabled) == "function" then
+                apiLocal.SetDisabled(DisabledKeybinds[frameKey])
+            end
+        end
+    end
+    
+end
+
+-- ** Persist Disabled/Enabled Keybind Logic Ends Here ** --
 
 
 ---------------------------------------------------------------------------
