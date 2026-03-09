@@ -3981,7 +3981,6 @@ Spray = {
 -- ** Code Starts Here ** --
 
 -- ** Team Check API Logic Starts Here **
--- ** Team check api ** --
 local teammateCache = {}
 _G.RivalsCHT_TeamCheck = _G.RivalsCHT_TeamCheck or {}
 do
@@ -4055,103 +4054,135 @@ do
     end
 end
 
--- ** end of team check ** --
-
 -- ** Team Check API Logic Ends Here **
+
+-------------------------------------------------------
 
 -- ** Visual Tab Parts 
 
 -- ** Player Chams Logic Starts Here **
+
 do
-    local chams = {} 
+    local chams = {}
     local charConns = {}
     local playerAddedConn, playerRemovingConn
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+
+    local MAX_CHAMS_DISTANCE = 350
+    local localCharConn = nil
+
+    local function isWithinChamsDistance(char)
+        if not char then return false end
+        local charRoot = char.PrimaryPart or char:FindFirstChild("HumanoidRootPart")
+        local lp = Players.LocalPlayer
+        if not lp or not lp.Character then return false end
+        local localRoot = lp.Character.PrimaryPart or lp.Character:FindFirstChild("HumanoidRootPart")
+        if not charRoot or not localRoot then return false end
+        return (localRoot.Position - charRoot.Position).Magnitude <= MAX_CHAMS_DISTANCE
+    end
+
+    local function reevalAllChams()
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= Players.LocalPlayer then
+                local ch = p.Character
+                if ch and isWithinChamsDistance(ch) then
+                    if not chams[p] then chams[p] = createHighlightForCharacter(ch) end
+                else
+                    if chams[p] then chams[p]:Destroy() chams[p] = nil end
+                end
+            end
+        end
+    end
 
     local function createHighlightForCharacter(char)
         if not char or not char:IsA("Model") then return nil end
-        local ok, h = pcall(function()
-            local inst = Instance.new("Highlight")
-            inst.Name = "Rivals_PlayerChams"
-            inst.Adornee = char
-            local fillColor = COLORS.accent
-            do
-                local coltbl = GetConfig("visuals.playerChamsColor", nil)
-                if type(coltbl) == "table" and coltbl.r and coltbl.g and coltbl.b then
-                    fillColor = Color3.new(coltbl.r, coltbl.g, coltbl.b)
-                end
-            end
-            inst.FillColor = fillColor
-            inst.OutlineColor = COLORS.panelDark
-            inst.Parent = gui
-            return inst
-        end)
-        if ok then return h end
-        return nil
+        local inst = Instance.new("Highlight")
+        inst.Name = "Rivals_PlayerChams"
+        inst.Adornee = char
+        local fillColor = COLORS.accent
+        local coltbl = GetConfig("visuals.playerChamsColor", nil)
+        if type(coltbl) == "table" and coltbl.r and coltbl.g and coltbl.b then
+            fillColor = Color3.new(coltbl.r, coltbl.g, coltbl.b)
+        end
+        inst.FillColor = fillColor
+        inst.OutlineColor = COLORS.panelDark
+        inst.Parent = gui
+        return inst
     end
 
     local function removeChamsFromPlayer(p)
-        if charConns[p] then
-            pcall(function() charConns[p]:Disconnect() end)
-            charConns[p] = nil
-        end
-        if chams[p] then
-            pcall(function() chams[p]:Destroy() end)
-            chams[p] = nil
-        end
+        local c = charConns[p]
+        if c then c:Disconnect() end
+        charConns[p] = nil
+        local h = chams[p]
+        if h then h:Destroy() end
+        chams[p] = nil
     end
 
     local function addChamsToPlayer(p)
         if not p or p == Players.LocalPlayer then return end
         removeChamsFromPlayer(p)
         local char = p.Character
-        if char then
+        if char and isWithinChamsDistance(char) then
             chams[p] = createHighlightForCharacter(char)
         end
         charConns[p] = p.CharacterAdded:Connect(function(c)
-            pcall(function()
-                if chams[p] then chams[p]:Destroy() end
+            if chams[p] then chams[p]:Destroy() end
+            if isWithinChamsDistance(c) then
                 chams[p] = createHighlightForCharacter(c)
-            end)
+            else
+                chams[p] = nil
+            end
         end)
     end
 
     local function enableChams()
         for _, p in ipairs(Players:GetPlayers()) do
-            pcall(function() addChamsToPlayer(p) end)
+            addChamsToPlayer(p)
         end
-        playerAddedConn = Players.PlayerAdded:Connect(function(p) pcall(function() addChamsToPlayer(p) end) end)
-        playerRemovingConn = Players.PlayerRemoving:Connect(function(p) pcall(function() removeChamsFromPlayer(p) end) end)
+        if LocalPlayer and (not LocalPlayer.Character or not (LocalPlayer.Character.PrimaryPart or LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))) then
+            if not localCharConn then
+                localCharConn = LocalPlayer.CharacterAdded:Connect(function()
+                    reevalAllChams()
+                    if localCharConn then localCharConn:Disconnect() localCharConn = nil end
+                end)
+            end
+        end
+        playerAddedConn = Players.PlayerAdded:Connect(function(p) addChamsToPlayer(p) end)
+        playerRemovingConn = Players.PlayerRemoving:Connect(function(p) removeChamsFromPlayer(p) end)
     end
 
     local function disableChams()
         if playerAddedConn then playerAddedConn:Disconnect() playerAddedConn = nil end
         if playerRemovingConn then playerRemovingConn:Disconnect() playerRemovingConn = nil end
         for p, conn in pairs(charConns) do
-            pcall(function() conn:Disconnect() end)
+            if conn then conn:Disconnect() end
             charConns[p] = nil
         end
         for p, h in pairs(chams) do
-            pcall(function() if h and h.Destroy then h:Destroy() end end)
+            if h then h:Destroy() end
             chams[p] = nil
         end
+        if localCharConn then localCharConn:Disconnect() localCharConn = nil end
     end
 
     local api = ToggleAPI[playerChamsToggle]
     if api then
         local prev = api.OnToggle
         api.OnToggle = function(state)
-            if prev then pcall(prev, state) end
+            if type(prev) == "function" then prev(state) end
             if state then
-                pcall(enableChams)
+                enableChams()
             else
-                pcall(disableChams)
+                disableChams()
             end
         end
-        pcall(function() if api.Get and api.Get() then enableChams() end end)
+        if api.Get and api.Get() then enableChams() end
     end
 
     RegisterUnload(function()
-        pcall(disableChams)
+        disableChams()
     end)
 end
 
@@ -4211,7 +4242,7 @@ do
         local RunService = game:GetService("RunService")
         local localPlayer = Players.LocalPlayer
 
-        local MAX_CREATE_DISTANCE = 300 
+        local MAX_CREATE_DISTANCE = 300
         local PAD = 8
 
         local function getBoxColor()
@@ -5775,6 +5806,13 @@ do
 
         RegisterUnload(function()
             if releaseConn and releaseConn.Disconnect then releaseConn:Disconnect() end
+            releaseConn = nil
+            if type(_G) == "table" and _G.RivalsCHT_Aimbot then
+                _G.RivalsCHT_Aimbot.ForceActive = false
+                if type(_G.RivalsCHT_Aimbot.Stop) == "function" then _G.RivalsCHT_Aimbot.Stop() end
+            end
+            api.OnActivate = nil
+            api.OnBind = nil
         end)
     end
 
@@ -6060,6 +6098,10 @@ do
     local labels = {}
     local labelCount = 0
     local childAddedConn, childRemovedConn, renderConn
+    local pendingQueue = {}
+    local pendingSet = {}
+    local queueConn = nil
+    local PROCESS_BATCH = 50
     local displayName = ("Subspace_Tripmine"):gsub("_"," ")
     local MAX_LABELS = 50
     local MAX_DIST = 300
@@ -6110,30 +6152,38 @@ do
     end
 
     local function scanAndCreate()
-        local cam = Workspace.CurrentCamera
-        local camPos = cam and cam.CFrame.Position or nil
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if labelCount >= MAX_LABELS then break end
-            if obj:IsA("BasePart") and isTripminePart(obj) then
-                if not (camPos and (obj.Position - camPos).Magnitude > MAX_DIST) then
-                    makeLabel(obj)
+        local descs = Workspace:GetDescendants()
+        task.spawn(function()
+            for i = 1, #descs do
+                if labelCount >= MAX_LABELS then break end
+                local obj = descs[i]
+                if obj and obj:IsA("BasePart") and isTripminePart(obj) then
+                    if not pendingSet[obj] and not labels[obj] then
+                        pendingSet[obj] = true
+                        pendingQueue[#pendingQueue + 1] = obj
+                    end
                 end
+                if (i % PROCESS_BATCH) == 0 then task.wait() end
             end
-        end
+        end)
     end
 
     local function onDescendantAdded(desc)
-        local cam = Workspace.CurrentCamera
-        local camPos = cam and cam.CFrame.Position or nil
         if desc:IsA("BasePart") then
-            if isTripminePart(desc) and not (camPos and (desc.Position - camPos).Magnitude > MAX_DIST) then makeLabel(desc) end
-        else
-            for _, d in ipairs(desc:GetDescendants()) do
-                if labelCount >= MAX_LABELS then break end
-                if d:IsA("BasePart") and isTripminePart(d) and not (camPos and (d.Position - camPos).Magnitude > MAX_DIST) then
-                    makeLabel(d)
-                end
+            if isTripminePart(desc) and not pendingSet[desc] and not labels[desc] then
+                pendingSet[desc] = true
+                pendingQueue[#pendingQueue + 1] = desc
             end
+        else
+            task.spawn(function()
+                for _, d in ipairs(desc:GetDescendants()) do
+                    if labelCount >= MAX_LABELS then break end
+                    if d:IsA("BasePart") and isTripminePart(d) and not pendingSet[d] and not labels[d] then
+                        pendingSet[d] = true
+                        pendingQueue[#pendingQueue + 1] = d
+                    end
+                end
+            end)
         end
     end
 
@@ -6152,6 +6202,25 @@ do
         scanAndCreate()
         childAddedConn = Workspace.DescendantAdded:Connect(onDescendantAdded)
         if Workspace.DescendantRemoving then childRemovedConn = Workspace.DescendantRemoving:Connect(onDescendantRemoving) end
+        if not queueConn then
+            queueConn = RunService.Heartbeat:Connect(function()
+                if labelCount >= MAX_LABELS then return end
+                local cam = Workspace.CurrentCamera
+                local camPos = cam and cam.CFrame.Position or nil
+                local toProcess = math.min(PROCESS_BATCH, #pendingQueue)
+                for i = 1, toProcess do
+                    local part = table.remove(pendingQueue, 1)
+                    if part then pendingSet[part] = nil end
+                    if not part or not part.Parent then
+                    else
+                        if isTripminePart(part) and not (camPos and (part.Position - camPos).Magnitude > MAX_DIST) then
+                            makeLabel(part)
+                        end
+                    end
+                    if labelCount >= MAX_LABELS then break end
+                end
+            end)
+        end
         renderConn = RunService.RenderStepped:Connect(function()
             local cam = Workspace.CurrentCamera
             if not cam then
@@ -6182,6 +6251,8 @@ do
         if renderConn then renderConn:Disconnect() renderConn = nil end
         if childAddedConn then childAddedConn:Disconnect() childAddedConn = nil end
         if childRemovedConn then childRemovedConn:Disconnect() childRemovedConn = nil end
+        if queueConn then queueConn:Disconnect() queueConn = nil end
+        pendingQueue = {}
         for p, _ in pairs(labels) do removeLabel(p) end
         labels = {}
         labelCount = 0
@@ -6213,7 +6284,7 @@ do
     local katanaConn = nil
     local katanaExpiry = 0
     local KATANA_DIST = 150
-    local KATANA_TIME = 1.4
+    local KATANA_TIME = 1.0
 
     local katanaLabelApi = nil
 
@@ -6935,7 +7006,6 @@ do
                     if not firing then
                         firing = true
                         debugMsg = "AutoShoot: FIRING at " .. found.player.Name
-                        -- ** always trigger aimlock when firing
                         if _G and _G.RivalsCHT_Aimbot then
                             if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
                                 pcall(function() _G.RivalsCHT_Aimbot.SetPersistentTarget(found.head.Parent) end)
@@ -6951,7 +7021,6 @@ do
                         mouse1press()
                     else
                         debugMsg = "AutoShoot: Holding fire on " .. found.player.Name
-                        -- ** always trigger aimlock when holding fire
                         if _G and _G.RivalsCHT_Aimbot then
                             if type(_G.RivalsCHT_Aimbot.SetPersistentTarget) == "function" then
                                 pcall(function() _G.RivalsCHT_Aimbot.SetPersistentTarget(found.head.Parent) end)
@@ -6972,7 +7041,6 @@ do
                 mouse1release()
                 firing = false
                 debugMsg = "AutoShoot: Released fire"
-                -- ** always clear aimlock when fire ends
                 if _G and _G.RivalsCHT_Aimbot then
                     _G.RivalsCHT_Aimbot.ForceActive = false
                     _G.RivalsCHT_Aimbot.Stop()
@@ -6985,7 +7053,6 @@ do
                 end
             else
                 debugMsg = "AutoShoot: Waiting for target"
-                -- ** always clear aimlock if not firing
                 if _G and _G.RivalsCHT_Aimbot then
                     _G.RivalsCHT_Aimbot.ForceActive = false
                     _G.RivalsCHT_Aimbot.Stop()
@@ -8550,26 +8617,44 @@ end)
 
 do
     local _hideSmokeRunning = false
-    local _worker = nil
+    local _workerConn = nil
 
-    local function startHideSmoke()
-        if _hideSmokeRunning then return end
-        _hideSmokeRunning = true
-        _worker = task.spawn(function()
-            while _hideSmokeRunning do
-                for _, obj in ipairs(Workspace:GetChildren()) do
-                    if obj and type(obj.Name) == "string" and obj.Name == "Smoke Grenade" then
-                        if obj.Destroy then obj:Destroy() end
-                    end
-                end
-                task.wait(0.1)
+    local function handleSmoke(inst)
+        if not inst or not inst.Parent then return end
+        for _, d in ipairs(inst:GetDescendants()) do
+            if d:IsA("ParticleEmitter") then
+                d.Enabled = false
+            elseif d:IsA("BasePart") then
+                d.Transparency = 1
+            elseif d:IsA("Decal") or d:IsA("Texture") then
+                d.Transparency = 1
+            end
+        end
+        task.defer(function()
+            if inst and inst.Parent then
+                inst:Destroy()
             end
         end)
     end
 
+    local function startHideSmoke()
+        if _hideSmokeRunning then return end
+        _hideSmokeRunning = true
+        if not _workerConn then
+            _workerConn = workspace.DescendantAdded:Connect(function(child)
+                if not _hideSmokeRunning then return end
+                if typeof(child) == "Instance" and child.Name == "Smoke Grenade" then
+                    handleSmoke(child)
+                end
+            end)
+        end
+        for _, v in ipairs(workspace:GetDescendants()) do
+            if v and v.Name == "Smoke Grenade" then handleSmoke(v) end
+        end
+    end
+
     local function stopHideSmoke()
         _hideSmokeRunning = false
-        _worker = nil
     end
 
     local tApi = (ToggleAPI and ToggleAPI[hideSmokeToggle]) or nil
@@ -8586,6 +8671,7 @@ do
 
     RegisterUnload(function()
         _hideSmokeRunning = false
+        if _workerConn then _workerConn:Disconnect() _workerConn = nil end
     end)
 end
 
@@ -8605,44 +8691,51 @@ do
     local enabled = true
     local wsConn, guiConn
 
-    local function destroySafely(obj)
-        if not obj then return end
-        if type(obj.Destroy) == "function" then
-            pcall(obj.Destroy, obj)
-        end
-    end
+    local lastShow = 0
+    local SHOW_THROTTLE = 0.5
 
     local function showFlashLabel()
+        local now = tick()
+        if now - lastShow < SHOW_THROTTLE then return end
+        lastShow = now
         if type(_G) == "table" and _G.RivalsTopLabel and type(_G.RivalsTopLabel.New) == "function" then
             local lbl = _G.RivalsTopLabel.New("You are flashbanged currently", {TextSize = 14})
             task.delay(3.5, function()
-                if lbl and lbl.Destroy then lbl:Destroy() end
+                if lbl then lbl:Destroy() end
             end)
         end
+    end
+
+    local function handleFlashInstance(inst)
+        if not enabled or not inst then return end
+        local now = tick()
+        if now - lastShow < SHOW_THROTTLE then
+            inst:Destroy()
+            return
+        end
+        inst:Destroy()
+        showFlashLabel()
     end
 
     local function startRemover()
         if wsConn then return end
         wsConn = workspace.ChildAdded:Connect(function(child)
-            if enabled and child and child.Name == "FlashbangEffect" then
-                destroySafely(child)
-                showFlashLabel()
-            end
+            if child and child.Name == "FlashbangEffect" then handleFlashInstance(child) end
         end)
         if playerGui then
             guiConn = playerGui.ChildAdded:Connect(function(child)
-                if enabled and child and tostring(child.Name):lower():find("flash") then
-                    destroySafely(child)
-                    showFlashLabel()
-                end
+                if child and child.Name:lower():find("flash") then handleFlashInstance(child) end
             end)
         end
-        for _, v in ipairs(workspace:GetChildren()) do
-            if v.Name == "FlashbangEffect" then destroySafely(v) showFlashLabel() end
-        end
+        repeat
+            local found = workspace:FindFirstChild("FlashbangEffect", true)
+            if found then handleFlashInstance(found) end
+        until not found
         if playerGui then
-            for _, v in ipairs(playerGui:GetChildren()) do
-                if tostring(v.Name):lower():find("flash") then destroySafely(v) end
+            for _, v in ipairs(playerGui:GetDescendants()) do
+                if v.Name:lower():find("flash") then
+                    v:Destroy()
+                end
             end
         end
     end
@@ -8656,7 +8749,7 @@ do
     if tApi then
         local prev = tApi.OnToggle
         tApi.OnToggle = function(state)
-            if type(prev) == "function" then pcall(prev, state) end
+            if type(prev) == "function" then prev(state) end
             enabled = not not state
             if enabled then startRemover() else stopRemover() end
         end
