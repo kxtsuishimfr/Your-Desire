@@ -4063,126 +4063,95 @@ end
 -- ** Player Chams Logic Starts Here **
 
 do
-    local chams = {}
+    local chams = {} 
     local charConns = {}
     local playerAddedConn, playerRemovingConn
-    local Players = game:GetService("Players")
-    local LocalPlayer = Players.LocalPlayer
-
-    local MAX_CHAMS_DISTANCE = 350
-    local localCharConn = nil
-
-    local function isWithinChamsDistance(char)
-        if not char then return false end
-        local charRoot = char.PrimaryPart or char:FindFirstChild("HumanoidRootPart")
-        local lp = Players.LocalPlayer
-        if not lp or not lp.Character then return false end
-        local localRoot = lp.Character.PrimaryPart or lp.Character:FindFirstChild("HumanoidRootPart")
-        if not charRoot or not localRoot then return false end
-        return (localRoot.Position - charRoot.Position).Magnitude <= MAX_CHAMS_DISTANCE
-    end
-
-    local function reevalAllChams()
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= Players.LocalPlayer then
-                local ch = p.Character
-                if ch and isWithinChamsDistance(ch) then
-                    if not chams[p] then chams[p] = createHighlightForCharacter(ch) end
-                else
-                    if chams[p] then chams[p]:Destroy() chams[p] = nil end
-                end
-            end
-        end
-    end
 
     local function createHighlightForCharacter(char)
         if not char or not char:IsA("Model") then return nil end
-        local inst = Instance.new("Highlight")
-        inst.Name = "Rivals_PlayerChams"
-        inst.Adornee = char
-        local fillColor = COLORS.accent
-        local coltbl = GetConfig("visuals.playerChamsColor", nil)
-        if type(coltbl) == "table" and coltbl.r and coltbl.g and coltbl.b then
-            fillColor = Color3.new(coltbl.r, coltbl.g, coltbl.b)
-        end
-        inst.FillColor = fillColor
-        inst.OutlineColor = COLORS.panelDark
-        inst.Parent = gui
-        return inst
+        local ok, h = pcall(function()
+            local inst = Instance.new("Highlight")
+            inst.Name = "Rivals_PlayerChams"
+            inst.Adornee = char
+            local fillColor = COLORS.accent
+            do
+                local coltbl = GetConfig("visuals.playerChamsColor", nil)
+                if type(coltbl) == "table" and coltbl.r and coltbl.g and coltbl.b then
+                    fillColor = Color3.new(coltbl.r, coltbl.g, coltbl.b)
+                end
+            end
+            inst.FillColor = fillColor
+            inst.OutlineColor = COLORS.panelDark
+            inst.Parent = gui
+            return inst
+        end)
+        if ok then return h end
+        return nil
     end
 
     local function removeChamsFromPlayer(p)
-        local c = charConns[p]
-        if c then c:Disconnect() end
-        charConns[p] = nil
-        local h = chams[p]
-        if h then h:Destroy() end
-        chams[p] = nil
+        if charConns[p] then
+            pcall(function() charConns[p]:Disconnect() end)
+            charConns[p] = nil
+        end
+        if chams[p] then
+            pcall(function() chams[p]:Destroy() end)
+            chams[p] = nil
+        end
     end
 
     local function addChamsToPlayer(p)
         if not p or p == Players.LocalPlayer then return end
         removeChamsFromPlayer(p)
         local char = p.Character
-        if char and isWithinChamsDistance(char) then
+        if char then
             chams[p] = createHighlightForCharacter(char)
         end
         charConns[p] = p.CharacterAdded:Connect(function(c)
-            if chams[p] then chams[p]:Destroy() end
-            if isWithinChamsDistance(c) then
+            pcall(function()
+                if chams[p] then chams[p]:Destroy() end
                 chams[p] = createHighlightForCharacter(c)
-            else
-                chams[p] = nil
-            end
+            end)
         end)
     end
 
     local function enableChams()
         for _, p in ipairs(Players:GetPlayers()) do
-            addChamsToPlayer(p)
+            pcall(function() addChamsToPlayer(p) end)
         end
-        if LocalPlayer and (not LocalPlayer.Character or not (LocalPlayer.Character.PrimaryPart or LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))) then
-            if not localCharConn then
-                localCharConn = LocalPlayer.CharacterAdded:Connect(function()
-                    reevalAllChams()
-                    if localCharConn then localCharConn:Disconnect() localCharConn = nil end
-                end)
-            end
-        end
-        playerAddedConn = Players.PlayerAdded:Connect(function(p) addChamsToPlayer(p) end)
-        playerRemovingConn = Players.PlayerRemoving:Connect(function(p) removeChamsFromPlayer(p) end)
+        playerAddedConn = Players.PlayerAdded:Connect(function(p) pcall(function() addChamsToPlayer(p) end) end)
+        playerRemovingConn = Players.PlayerRemoving:Connect(function(p) pcall(function() removeChamsFromPlayer(p) end) end)
     end
 
     local function disableChams()
         if playerAddedConn then playerAddedConn:Disconnect() playerAddedConn = nil end
         if playerRemovingConn then playerRemovingConn:Disconnect() playerRemovingConn = nil end
         for p, conn in pairs(charConns) do
-            if conn then conn:Disconnect() end
+            pcall(function() conn:Disconnect() end)
             charConns[p] = nil
         end
         for p, h in pairs(chams) do
-            if h then h:Destroy() end
+            pcall(function() if h and h.Destroy then h:Destroy() end end)
             chams[p] = nil
         end
-        if localCharConn then localCharConn:Disconnect() localCharConn = nil end
     end
 
     local api = ToggleAPI[playerChamsToggle]
     if api then
         local prev = api.OnToggle
         api.OnToggle = function(state)
-            if type(prev) == "function" then prev(state) end
+            if prev then pcall(prev, state) end
             if state then
-                enableChams()
+                pcall(enableChams)
             else
-                disableChams()
+                pcall(disableChams)
             end
         end
-        if api.Get and api.Get() then enableChams() end
+        pcall(function() if api.Get and api.Get() then enableChams() end end)
     end
 
     RegisterUnload(function()
-        disableChams()
+        pcall(disableChams)
     end)
 end
 
