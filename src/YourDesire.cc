@@ -3592,12 +3592,13 @@ local noclipGroup = makeCollapsibleGroup(rageTab.LeftCol, "Noclip Stuff", false,
     noclipKeybind = makeKeyBindButton(parent, "Noclip Keybind", Enum.KeyCode.N)
 end)
 
-local stickToToggle, stickToKeybind, useStickSmoothingToggle, smoothStickingSlider
-local stickGroup = makeCollapsibleGroup(rageTab.RightCol, "Stick to Players", false, function(parent)
+local stickToToggle, stickToKeybind, useStickSmoothingToggle, smoothStickingSlider, stickbBeneathPlayerToggle
+local stickGroup = makeCollapsibleGroup(rageTab.RightCol, "Sticky Players", false, function(parent)
     stickToToggle = makeToggle(parent, "Stick to Target", "Makes you stick to the nearest target behind them")
     stickToKeybind = makeKeyBindButton(parent, "Stick to Target Keybind", Enum.KeyCode.I)
     useStickSmoothingToggle = makeToggle(parent, "Use Smooth Sticking", "Smoothly moves you towards the target instead of teleporting.")
     smoothStickingSlider = makeSlider(parent, "Smooth Sticking", 0, 100, initialIntensity)
+    stickbBeneathPlayerToggle = makeToggle(parent, "Stick Beneath Player", "Stick to a player but beneath them, inside the ground.")
 end)
 
 -- Fly Group
@@ -3626,6 +3627,7 @@ BindSliderToConfig(smoothStickingSlider, "rage.smoothStickingIntensity", 20)
 BindToggleToConfig(flyToggle, "rage.fly", false)
 BindKeybindToConfig(flyKeybind, "rage.flyKeybind", Enum.KeyCode.N)
 BindSliderToConfig(flySpeedSlider, "rage.flySpeed", 20)
+BindToggleToConfig(stickbBeneathPlayerToggle, "rage.stickBeneathPlayer", false)
 --[[BindToggleToConfig(goToVoidToggle, "rage.goToVoid", false) 
 BindKeybindToConfig(goToVoidKeybind, "rage.goToVoidKeybind", Enum.KeyCode.N) ]]
 
@@ -4329,7 +4331,6 @@ do
                                     for _, cf in ipairs(corners) do table.insert(points, cf.Position) end
                                     minX, minY, maxX, maxY = projectWorldPointsToScreen(cam, points)
                                 else
-                                    -- ** fallback to important parts
                                     local parts = getImportantParts(ch)
                                     local points = {}
                                     for _, part in ipairs(parts) do table.insert(points, part.Position) end
@@ -4419,8 +4420,6 @@ do
         end)
     end
 end
-
-
 
 -- ** ESP Boxes Logic Ends Here **
 
@@ -7262,18 +7261,18 @@ do
 
     local function isEnemyByTeamCheck(pl)
         if not pl or pl == LocalPlayer then return false end
-        
-        local isEnemy = true
         if _G and _G.RivalsCHT_TeamCheck then
             if type(_G.RivalsCHT_TeamCheck.IsEnemy) == "function" then
                 local ok, res = pcall(_G.RivalsCHT_TeamCheck.IsEnemy, pl)
-                isEnemy = ok and not not res
+                if ok then return not not res end
+                return nil
             elseif type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
                 local ok, isTeam = pcall(_G.RivalsCHT_TeamCheck.IsTeammate, pl)
-                isEnemy = not (ok and isTeam)
+                if ok then return not not (not isTeam) end
+                return nil
             end
         end
-        return isEnemy
+        return nil
     end
 
     local function findStickTarget()
@@ -7284,7 +7283,8 @@ do
         local best, bestDist = nil, math.huge
 
         for _, pl in ipairs(Players:GetPlayers()) do
-            if isValidTarget(pl) and isEnemyByTeamCheck(pl) then
+            local enemyCheck = isEnemyByTeamCheck(pl)
+            if isValidTarget(pl) and enemyCheck == true then
                 local pp = pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")
                 local toTarget = pp.Position - origin
                 local dot = look:Dot(toTarget.Unit)
@@ -8918,6 +8918,304 @@ do
 end
 
 -- ** Persist Disabled/Enabled Keybind Logic Ends Here ** --
+
+---------------------------------------------------------------------------
+
+-- ** Stick Beneath Player Logic Starts Here ** --
+
+
+do
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local Workspace = game:GetService("Workspace")
+
+    local LocalPlayer = Players.LocalPlayer
+    local enabled = false
+    local conn = nil
+    local stickTarget = nil
+    local respawnConns = {}
+    local respawnWatcherActive = false
+    local savedPlayerCFrame = nil
+    local savedAutoRotate = nil
+
+    local MAX_DISTANCE = 300
+    local DEPTH_UNDER_FEET = 6.5
+    local SPIN_RADIUS = 1
+    local SPIN_SPEED = 120
+
+    local function isValidTarget(pl)
+        if not pl or pl == LocalPlayer then return false end
+        if not pl.Character then return false end
+        local pp = pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")
+        if not pp or not pp.Parent then return false end
+        local humanoid = pl.Character:FindFirstChildOfClass("Humanoid")
+        if not humanoid or type(humanoid.Health) ~= "number" then return false end
+        if humanoid.Health <= 0 then return false end
+        return true
+    end
+
+    local function isEnemyByTeamCheck(pl)
+        if not pl or pl == LocalPlayer then return false end
+        local isEnemy = true
+        if _G and _G.RivalsCHT_TeamCheck then
+            if type(_G.RivalsCHT_TeamCheck.IsEnemy) == "function" then
+                local ok, res = pcall(_G.RivalsCHT_TeamCheck.IsEnemy, pl)
+                isEnemy = ok and not not res
+            elseif type(_G.RivalsCHT_TeamCheck.IsTeammate) == "function" then
+                local ok, isTeam = pcall(_G.RivalsCHT_TeamCheck.IsTeammate, pl)
+                isEnemy = not (ok and isTeam)
+            end
+        end
+        return isEnemy
+    end
+
+    local function findStickTarget()
+        local cam = Workspace.CurrentCamera
+        if not cam then return nil end
+        local look = cam.CFrame.LookVector
+        local origin = cam.CFrame.Position
+        local best, bestDist = nil, math.huge
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if isValidTarget(pl) and isEnemyByTeamCheck(pl) then
+                local pp = pl.Character.PrimaryPart or pl.Character:FindFirstChild("HumanoidRootPart")
+                local toTarget = pp.Position - origin
+                local dot = look:Dot(toTarget.Unit)
+                if dot > 0.5 then
+                    local dist = toTarget.Magnitude
+                    if dist < MAX_DISTANCE and dist < bestDist then
+                        best = pl
+                        bestDist = dist
+                    end
+                end
+            end
+        end
+        return best
+    end
+
+    local function stopRespawnWatcher()
+        if not respawnWatcherActive then return end
+        respawnWatcherActive = false
+        for _,c in ipairs(respawnConns) do
+            pcall(function() if c and c.Disconnect then c:Disconnect() end end)
+        end
+        respawnConns = {}
+    end
+
+    local function startRespawnWatcher()
+        if respawnWatcherActive then return end
+        respawnWatcherActive = true
+        for _,p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local function onChar(char)
+                    if not p or p == LocalPlayer then return end
+                    if isEnemyByTeamCheck(p) and isValidTarget(p) then
+                        stickTarget = p
+                        stopRespawnWatcher()
+                    end
+                end
+                if p.Character then onChar(p.Character) end
+                if p.CharacterAdded then table.insert(respawnConns, p.CharacterAdded:Connect(onChar)) end
+            end
+        end
+        table.insert(respawnConns, Players.PlayerAdded:Connect(function(p)
+            if p == LocalPlayer then return end
+            local function onChar(char)
+                if isEnemyByTeamCheck(p) and isValidTarget(p) then
+                    stickTarget = p
+                    stopRespawnWatcher()
+                end
+            end
+            if p.Character then onChar(p.Character) end
+            if p.CharacterAdded then table.insert(respawnConns, p.CharacterAdded:Connect(onChar)) end
+        end))
+    end
+
+    local originalCollisionStates = {}
+    local function setCharacterCollisions(state)
+        if not LocalPlayer or not LocalPlayer.Character then return end
+        for _,part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                if state == nil then
+                    originalCollisionStates[part] = part.CanCollide
+                else
+                    local prev = originalCollisionStates[part]
+                    if prev ~= nil then
+                        part.CanCollide = prev
+                    else
+                        part.CanCollide = not not state
+                    end
+                end
+                if state ~= nil then
+                    part.CanCollide = not not state
+                end
+            end
+        end
+    end
+
+    local function moveToGroundAndRestore()
+        if not LocalPlayer or not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return end
+        local root = LocalPlayer.Character.PrimaryPart
+        local origin = root.Position + Vector3.new(0, 50, 0)
+        local ray = Workspace:Raycast(origin, Vector3.new(0, -200, 0))
+        if ray and ray.Position then
+            local targetPos = ray.Position + Vector3.new(0, 3, 0)
+            LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(targetPos))
+        else
+            LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(root.Position + Vector3.new(0, 10, 0)))
+        end
+        setCharacterCollisions(true)
+    end
+
+    local spinRotation = 0
+    local prevTick = tick()
+
+    local function startBeneath()
+        if conn then return end
+        local lastSelect = 0
+        local SELECT_INTERVAL = 0.25
+        prevTick = tick()
+        conn = RunService.Heartbeat:Connect(function()
+            if not enabled then return end
+            if not LocalPlayer or not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return end
+            local now = tick()
+            local dt = now - prevTick
+            prevTick = now
+
+            if not stickTarget and now - lastSelect >= SELECT_INTERVAL then
+                stickTarget = findStickTarget()
+                lastSelect = now
+            end
+
+            if stickTarget and (not isValidTarget(stickTarget) or not isEnemyByTeamCheck(stickTarget)) then
+                stickTarget = nil
+                if enabled then
+                    stopBeneath()
+                    local api = ToggleAPI and ToggleAPI[stickbBeneathPlayerToggle]
+                    pcall(function()
+                        if api and api.Set then api.Set(false) end
+                        SetConfig("rage.stickBeneathPlayer", false)
+                    end)
+                end
+                return
+            end
+
+            if not stickTarget then
+                return
+            end
+
+            local tp = stickTarget.Character.PrimaryPart or stickTarget.Character:FindFirstChild("HumanoidRootPart")
+            if tp and tp.Position then
+                spinRotation = spinRotation + (dt * SPIN_SPEED)
+                local ox = math.cos(spinRotation) * SPIN_RADIUS
+                local oz = math.sin(spinRotation) * SPIN_RADIUS
+                local beneathPos = tp.Position + Vector3.new(ox, -DEPTH_UNDER_FEET, oz)
+                local dest = CFrame.new(beneathPos, tp.Position)
+
+                local useSmoothing = false
+                local sToggleApi = ToggleAPI and ToggleAPI[useStickSmoothingToggle]
+                if sToggleApi and sToggleApi.Get then
+                    useSmoothing = not not sToggleApi.Get()
+                else
+                    useSmoothing = GetConfig("rage.useStickSmoothing", false)
+                end
+
+                if useSmoothing then
+                    local intensity = nil
+                    local sApi = SliderAPI and SliderAPI[smoothStickingSlider]
+                    if sApi and sApi.Get then
+                        intensity = sApi.Get()
+                    else
+                        intensity = GetConfig("rage.smoothStickingIntensity", 20)
+                    end
+                    if type(intensity) ~= "number" then intensity = 20 end
+                    local alpha = math.clamp(intensity / 100, 0, 1)
+                    local lerpAlpha = math.clamp(alpha * (dt * 8), 0, 1)
+                    LocalPlayer.Character:SetPrimaryPartCFrame(LocalPlayer.Character.PrimaryPart.CFrame:Lerp(dest, lerpAlpha))
+                else
+                    LocalPlayer.Character:SetPrimaryPartCFrame(dest)
+                end
+            end
+        end)
+    end
+
+    local function stopBeneath()
+        if conn then
+            if conn.Disconnect then conn:Disconnect() end
+            conn = nil
+        end
+        stickTarget = nil
+        stopRespawnWatcher()
+        
+        do
+            local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and savedAutoRotate ~= nil then
+                pcall(function() humanoid.AutoRotate = savedAutoRotate end)
+                savedAutoRotate = nil
+            end
+        end
+        if savedPlayerCFrame and LocalPlayer and LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
+            pcall(function()
+                LocalPlayer.Character:SetPrimaryPartCFrame(savedPlayerCFrame)
+            end)
+            savedPlayerCFrame = nil
+        else
+            moveToGroundAndRestore()
+        end
+        
+    end
+
+    do
+        local api = ToggleAPI and ToggleAPI[stickbBeneathPlayerToggle]
+        if api then
+            local prev = api.OnToggle
+            api.OnToggle = function(state)
+                if prev then pcall(prev, state) end
+                enabled = not not state
+                if enabled then
+                    if LocalPlayer and LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
+                        pcall(function() savedPlayerCFrame = LocalPlayer.Character.PrimaryPart.CFrame end)
+                    end
+                
+                    do
+                        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                        if humanoid then
+                            pcall(function()
+                                savedAutoRotate = humanoid.AutoRotate
+                                humanoid.AutoRotate = false
+                            end)
+                        end
+                    end
+                    
+                    local otherApi = ToggleAPI and ToggleAPI[stickToToggle]
+                    pcall(function()
+                        if otherApi and otherApi.Set then otherApi.Set(false) end
+                        SetConfig("rage.stickToTarget", false)
+                    end)
+                    setCharacterCollisions(false)
+                    startRespawnWatcher()
+                    startBeneath()
+                    makeNotification("Stick Beneath Player is ON", 3)
+                else
+                    stopBeneath()
+                    makeNotification("Stick Beneath Player is OFF", 3)
+                end
+            end
+            if api.Set then
+                local prevOn = api.OnToggle
+                api.OnToggle = nil
+                pcall(api.Set, GetConfig("rage.stickBeneathPlayer", false))
+                api.OnToggle = prevOn
+            end
+        end
+    end
+
+    RegisterUnload(function()
+        stopBeneath()
+    end)
+end
+
+
+-- ** Stick Beneath Player Logic Ends Here ** --
 
 
 ---------------------------------------------------------------------------
