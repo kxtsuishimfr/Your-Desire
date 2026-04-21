@@ -423,6 +423,7 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders, warn
     local btnPad = Instance.new("UIPadding") btnPad.Parent = btn; btnPad.PaddingLeft = UDim.new(0, 12)
     btn.ZIndex = 10
     btn:SetAttribute("TabActive", false)
+    btn.ClipsDescendants = true
 
     -- ** active tab indicator 
     local indicator = Instance.new("Frame")
@@ -566,6 +567,26 @@ local function makeTab(name, tabsParent, pagesParent, onSelect, colHeaders, warn
     TAB_WARNING_HANDLERS[page] = showWarning
 
     btn.MouseButton1Click:Connect(function()
+        local mousePos = UserInputService:GetMouseLocation()
+        local lx = math.clamp(mousePos.X - btn.AbsolutePosition.X, 0, btn.AbsoluteSize.X)
+        local ly = math.clamp(mousePos.Y - btn.AbsolutePosition.Y, 0, btn.AbsoluteSize.Y)
+        local ripple = Instance.new("Frame")
+        ripple.Size = UDim2.new(0, 0, 0, 0)
+        ripple.Position = UDim2.new(0, lx, 0, ly)
+        ripple.AnchorPoint = Vector2.new(0.5, 0.5)
+        ripple.BackgroundColor3 = (COLORS.accent or COLORS.text):Lerp(COLORS.white or Color3.new(1,1,1), 0.22)
+        ripple.BackgroundTransparency = 0.6
+        ripple.BorderSizePixel = 0
+        ripple.ZIndex = btn.ZIndex + 5
+        local rc = Instance.new("UICorner") rc.CornerRadius = UDim.new(1, 0) rc.Parent = ripple
+        ripple.Parent = btn
+        local maxDim = math.max(btn.AbsoluteSize.X, btn.AbsoluteSize.Y)
+        local final = UDim2.new(0, maxDim * 2, 0, maxDim * 2)
+        local tw = TweenService:Create(ripple, TweenInfo.new(0.42, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = final, BackgroundTransparency = 1})
+        tw:Play()
+        tw.Completed:Connect(function()
+            if ripple and ripple.Parent then ripple:Destroy() end
+        end)
         if type(onSelect) == "function" then pcall(onSelect, btn, page) end
         showWarning()
     end)
@@ -2700,6 +2721,8 @@ end
 
 --------------------------------------------------------------------------
 
+-- ** Utils 
+
 -- ** Config Stuff
 local CONFIG_FILE = "Rivals-Config.json"
 local function readConfig()
@@ -2757,6 +2780,90 @@ local function GetConfig(key, default)
 end
 
 ----------------------------------------------------------------------
+
+-- ** Shadow eff
+-- to do: make it look less pixelated, also remember to add configurable layers, and transparency 
+
+local function addDropShadow(target, offsetX, offsetY, transparency)
+    if not target or not target.Parent then return nil end
+    
+    local layers = 8
+    local ox = offsetX or 4
+    local oy = offsetY or 4
+    local base = transparency or 0.85
+    
+    local cornerRadius = 0
+    local uc = target:FindFirstChildWhichIsA("UICorner")
+    if uc and uc.CornerRadius then
+        if typeof(uc.CornerRadius) == "UDim" then
+            cornerRadius = uc.CornerRadius.Offset
+        elseif type(uc.CornerRadius) == "number" then
+            cornerRadius = uc.CornerRadius
+        end
+    end
+    
+    local container = Instance.new("Frame")
+    container.Name = target.Name .. "Shadow"
+    container.BackgroundTransparency = 1
+    container.BorderSizePixel = 0
+    container.ZIndex = math.max(0, (target.ZIndex or 1) - 8)
+    container.Parent = target.Parent
+    
+    local shadows = {}
+    for i = 1, layers do
+        local s = Instance.new("Frame")
+        s.BackgroundColor3 = Color3.new(0, 0, 0)
+        s.BorderSizePixel = 0
+        s.ZIndex = container.ZIndex + i
+        
+        local progress = i / layers
+        s.BackgroundTransparency = base + ((1 - base) * progress)
+        
+        local rc = Instance.new("UICorner")
+        rc.CornerRadius = UDim.new(0, cornerRadius + (i * 0.5))
+        rc.Parent = s
+        
+        s.Parent = container
+        table.insert(shadows, s)
+    end
+    
+    local function refresh()
+        if not target or not target.Parent then return end
+        if not container or not container.Parent then return end
+        if not target.Visible then
+            container.Visible = false
+            return
+        end
+        
+        container.Visible = true
+        container.Size = target.Size
+        container.Position = target.Position
+        
+        for i, s in ipairs(shadows) do
+            if s then
+                local offset = UDim2.new(0, ox * (i / layers), 0, oy * (i / layers))
+                s.Size = target.Size
+                s.Position = target.Position + offset
+                s.ZIndex = math.max(0, (target.ZIndex or 1) - 8 + i)
+            end
+        end
+    end
+    
+    target:GetPropertyChangedSignal("Position"):Connect(refresh)
+    target:GetPropertyChangedSignal("Size"):Connect(refresh)
+    target:GetPropertyChangedSignal("ZIndex"):Connect(refresh)
+    target:GetPropertyChangedSignal("AbsoluteSize"):Connect(refresh)
+    target:GetPropertyChangedSignal("Visible"):Connect(refresh)
+    
+    target.AncestryChanged:Connect(function()
+        if not target.Parent then
+            container:Destroy()
+        end
+    end)
+    
+    task.defer(refresh)
+    return container
+end
 
 ----------------------------------------------------------------------
 
@@ -3016,6 +3123,8 @@ RegisterThemed(root)
     tabsBar.Position = UDim2.new(0, 0, 0, bannerHeight + TOPBAR_SPACING)
     tabsBar.BackgroundColor3 = COLORS.panel
 tabsBar.Parent = root
+    addDropShadow(root, 10, 10, 0.72)
+    addDropShadow(tabsBar, 6, 6, 0.78)
 local tabsBarCorner = Instance.new("UICorner") tabsBarCorner.CornerRadius = UDim.new(0, 6) tabsBarCorner.Parent = tabsBar
 local tabsBarLayout = Instance.new("UIListLayout") tabsBarLayout.Parent = tabsBar
 tabsBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
