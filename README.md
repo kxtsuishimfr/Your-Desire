@@ -1,18 +1,26 @@
-# Your Desire
+# Rivals - Your Desire 
 
-Small script for the game named "Rivals" on Roblox.
-It offers the following cheating features:
+## Discord server is at "https://discord.gg/mJJbr5sB99", join this if you're interested in using my executor "Lunox" when it gets released :>
 
-- Player Chams
-- Glow Chams
-- Aimbot
-- Aimlock
+1. I don't offer support for this script; I'm the only one working on it meaning I don't have a lot of time. If you have issues, just wait for an update.
 
-  And more features!
+2. Asking for updates in the Discord server won't get you anywhere, so don't waste your time doing that.
 
-I recommend checking it out for yourself to get the full experience, it's really nice.
+3. I'm still actively maintaining this script, but if you want new stuff don't nag me; it's open source, update it yourself.
 
-For support, please open an issue in this repo. There is no support website/server for this cheat,
-I will always operate and get feedback on issues through here.
+```Bash
+-- ScriptBlox page:
+   - https://scriptblox.com/script/RIVALS-Your-Desire-85438
+```
 
-# Created and maintained by: primesto.fx (your silly pookie)
+```Lua
+-- Loadstring:
+   - loadstring(game:HttpGet("https://raw.githubusercontent.com/kxtsuishimfr/Your-Desire/main/src/YourDesire.cc"))(true)
+```
+
+```Bash
+-- Raw Code:
+  - https://raw.githubusercontent.com/kxtsuishimfr/Your-Desire/main/src/YourDesire.cc/
+```
+
+Have fun using or skidding this!!
