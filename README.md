@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://discord.gg/mJJbr5sB99">
-    <img src="https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/discord.svg" width="30"/>
+    <img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?style=for-the-badge&logo=discord&logoColor=white" />
   </a>
 </p>
 
