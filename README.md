@@ -2,6 +2,8 @@
   <h1>Rivals - Your Desire</h1>
 </p>
 
+## Join my Discord server if you're interested in using my executor "Lunox" when I release it :D
+
 <p align="center">
   <a href="https://discord.gg/mJJbr5sB99">
     <img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?style=for-the-badge&logo=discord&logoColor=white" />
