@@ -1,6 +1,10 @@
-# Rivals - Your Desire 
+<p align="center">
+  <h1>Rivals - Your Desire</h1>
+</p>
 
-## Discord server is at "https://discord.gg/mJJbr5sB99", join this if you're interested in using my executor "Lunox" when it gets released :>
+<p align="center">
+  <a href="https://discord.gg/mJJbr5sB99">https://discord.gg/mJJbr5sB99</a>
+</p>
 
 1. I don't offer support for this script; I'm the only one working on it meaning I don't have a lot of time. If you have issues, just wait for an update.
 
@@ -8,19 +12,14 @@
 
 3. I'm still actively maintaining this script, but if you want new stuff don't nag me; it's open source, update it yourself.
 
-```Bash
+```bash
 -- ScriptBlox page:
-   - https://scriptblox.com/script/RIVALS-Your-Desire-85438
-```
+https://scriptblox.com/script/RIVALS-Your-Desire-85438
 
-```Lua
 -- Loadstring:
-   - loadstring(game:HttpGet("https://raw.githubusercontent.com/kxtsuishimfr/Your-Desire/main/src/YourDesire.cc"))(true)
-```
+loadstring(game:HttpGet("https://raw.githubusercontent.com/kxtsuishimfr/Your-Desire/main/src/YourDesire.cc"))(true)
 
-```Bash
 -- Raw Code:
-  - https://raw.githubusercontent.com/kxtsuishimfr/Your-Desire/main/src/YourDesire.cc/
-```
+https://raw.githubusercontent.com/kxtsuishimfr/Your-Desire/main/src/YourDesire.cc/
 
 Have fun using or skidding this!!
