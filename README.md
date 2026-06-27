@@ -14,7 +14,7 @@
 
 2. Asking for updates in the Discord server won't get you anywhere, so don't waste your time doing that.
 
-3. I'm still actively maintaining this script, but if you want new stuff don't nag me; it's open source, update it yourself.
+3. As of now, I stopped updating this script, if you need new stuff add it yourself
 
 ```
 -- ScriptBlox page:
