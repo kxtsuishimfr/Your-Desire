@@ -1,7 +1,7 @@
 -- ─────────────── ✦ Rivals - Your Desire ✦ ───────────────
---  Created by: primesto.fx
---  Maintained by: primesto.fx
---  DM on Discord for requests: primesto.fx
+--  Created by: Yuki
+--  Maintained by: Yuki
+--  DM on Discord for requests: kazekan_.
 -- ────────────────────────────────────────────────────────────────
 
 local Players = game:GetService("Players")
